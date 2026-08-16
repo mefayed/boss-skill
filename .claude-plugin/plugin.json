@@ -1,6 +1,6 @@
 {
   "name": "boss",
   "description": "Multi-model orchestration: a supervisor session triages coding tasks to the cheapest capable model, consults an advisor on irreversible decisions, reviews every diff, and reports back compactly.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": { "name": "Mohamed Fayed" }
 }

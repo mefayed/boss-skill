@@ -58,7 +58,8 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `boss think more`                       | shifts dispatches one step up (deep variant or next model)        |
 | `boss careful with tokens`              | shifts down, skips the advisor unless irreversible, batches edits |
 | `use sonnet` / `ask fable` / `no fable` | overrides the triage directly                                     |
-| `let codex do it` / `sol can advise too` | routes to Codex as implementer or second advisor (see below)     |
+| `delegate to codex` / `delegate to terra`  | routes implementation to the Codex lane (optional, see below)     |
+| `second opinion from codex` / `consult sol` | adds Codex as an additional advisor                              |
 
 Directives persist for the session until countermanded.
 
