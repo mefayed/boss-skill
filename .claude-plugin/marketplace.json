@@ -1,0 +1,11 @@
+{
+  "name": "boss-skill",
+  "owner": { "name": "Mohamed Fayed" },
+  "plugins": [
+    {
+      "name": "boss",
+      "source": "./",
+      "description": "One orchestrator, the right model for every job."
+    }
+  ]
+}
