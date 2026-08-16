@@ -58,6 +58,7 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `boss think more`                       | shifts dispatches one step up (deep variant or next model)        |
 | `boss careful with tokens`              | shifts down, skips the advisor unless irreversible, batches edits |
 | `use sonnet` / `ask fable` / `no fable` | overrides the triage directly                                     |
+| `let codex do it` / `sol can advise too` | routes to Codex as implementer or second advisor (see below)     |
 
 Directives persist for the session until countermanded.
 
@@ -81,6 +82,7 @@ agents/fable-advisor.md   design critique before irreversible decisions; advises
 | opus        | cross-cutting, security, uncertain spec                              |
 | opus-deep   | rare, genuinely hard                                                 |
 | advisor     | one-exchange critique on architecture, migrations, security approach |
+| codex       | outside implementer or second opinion via the Codex CLI (optional)   |
 
 ### The loop
 
@@ -90,6 +92,20 @@ agents/fable-advisor.md   design critique before irreversible decisions; advises
 4. Supervisor reviews the diff (test edits first), re-runs the gates, surfaces judgment calls.
 5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → supervisor takes over. No loops.
 6. Queues get a progress file, decided-facts carry-forward, and a coherence close (full gates + repo-wide grep) at the end.
+
+## Optional: Codex as an extra lane
+
+If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way) or as a second advisor. Naming a model routes it explicitly: "sol" → GPT-5.6-Sol, "terra" → GPT-5.6-Terra, "luna" → GPT-5.6-Luna.
+
+Not installed? Two steps:
+
+```
+npm install -g @openai/codex        # the Codex CLI, then run `codex` once to log in
+/plugin marketplace add openai/codex-plugin-cc
+/plugin install codex@openai-codex
+```
+
+Without it, the codex lane simply doesn't exist — everything else works unchanged.
 
 ## Requirements
 
