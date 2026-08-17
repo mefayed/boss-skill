@@ -132,6 +132,16 @@ Without it, the codex lane simply doesn't exist — everything else works unchan
 - Claude Code with subagent support (`.claude/agents` definitions, per-dispatch model overrides).
 - Access to the models you want in the lanes; edit the `model:` frontmatter in `agents/*.md` to match your plan.
 
+The plugin itself has **zero dependencies** — markdown plus a plain POSIX-sh hook. Everything below is optional; when a tool is missing, boss degrades to the nearest available check, says so in its report, and suggests the install line.
+
+### Optional tools
+
+| Tool | Unlocks | Install |
+| ---- | ------- | ------- |
+| playwright-cli | screenshot verification of UI work | `npm install -g playwright && npx playwright install chromium` |
+| Codex CLI + plugin | the codex lane (outside implementer, advisor, debate advocate) | see "Optional: Codex as an extra lane" below |
+| GitHub CLI (`gh`) | PR/issue steps in briefs that need it | `brew install gh` (macOS) / [cli.github.com](https://cli.github.com) |
+
 ## License
 
 MIT
