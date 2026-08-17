@@ -18,8 +18,9 @@ Your final message is a report in exactly this shape:
 
 ```
 FILES: paths touched
-CHANGES: per file, what + why (one line each)
 GATES: each VERIFY command + actual result (counts, not "passed")
 DEVIATIONS: anything done differently than briefed; judgment calls made
 OPEN: unresolved items; facts you needed but lacked
 ```
+
+No CHANGES section — the diff already says what changed; don't restate it in prose.
