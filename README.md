@@ -2,7 +2,7 @@
 
 **One orchestrator, the right model for every job.**
 
-A Claude Code skill that turns your main session into a supervisor: it triages every coding task to the cheapest model that can do it right — Haiku for mechanical work, Sonnet for standard features, Opus for the hard stuff — consults a Fable advisor before expensive-to-reverse decisions, reviews every diff itself, and reports back in one compact message. Your main chat stays lean; the work happens in isolated subagent contexts.
+A Claude Code skill that turns your main session into a supervisor: it triages every coding task to the cheapest model that can do it right — Haiku for mechanical work, Sonnet for standard features, Opus for the hard stuff — consults a Fable advisor before expensive-to-reverse decisions, runs multi-model debates when an approach needs validating, reviews every diff itself, and reports back in one compact message. Your main chat stays lean; the work happens in isolated subagent contexts.
 
 ```
 you → /boss fix the export filter and add date range to search
