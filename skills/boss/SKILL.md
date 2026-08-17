@@ -72,7 +72,7 @@ Effort dials apply: "careful with tokens" → 2 advocates (haiku + sonnet), opus
    - Triad: scope creep, scope shortfall, quiet judgment calls — surface to the user, never silently absorb.
    - Re-run gates risk-tiered: low-risk mechanical work → re-run the one decisive gate; anything touching security, data, migrations, concurrency, or cross-cutting code → re-run all of them. The report is a claim, not evidence — but the diff read is always full, every line, every time.
 5. **Bounce** — small defect: fix it yourself (cheaper than a round-trip). Substantial: ONE delta bounce via SendMessage to the same agent — only what's wrong, never a restated brief. Still wrong → take over in the opus lane. No third round exists.
-6. **Verify** — gates green by your own run; UI work gets a playwright-cli screenshot.
+6. **Verify** — gates green by your own run; UI work gets a playwright-cli screenshot. Missing tool (playwright, a linter, anything): degrade to the nearest available check, say so in the report, and offer the one-line install — never fake or silently skip a verification.
 7. **Land** — builders never commit; review is the enforcement, not the instruction. A plugin hook additionally hard-blocks destructive Bash (`git push`, `reset --hard`, `rm -rf`, `DROP TABLE`) from builder agents only — a blocked command surfaces under OPEN in the report; supervisor and user are never intercepted. You commit only when the user asks, never with AI attribution trailers.
 8. **Report** — compact: what changed, lanes used, evidence, judgment calls, open items.
 
