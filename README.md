@@ -73,7 +73,10 @@ agents/builder.md         implementer contract — rules + report format, model 
 agents/builder-deep.md    same contract at high reasoning effort
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
 agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
+hooks/builder-guard.sh    hard-blocks destructive Bash (push, reset --hard, rm -rf, DROP) from builder agents ONLY
 ```
+
+The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted — zero false positives by construction. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
 
 ### The lanes
 

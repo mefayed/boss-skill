@@ -73,7 +73,7 @@ Effort dials apply: "careful with tokens" → 2 advocates (haiku + sonnet), opus
    - Re-run the gates yourself. The report is a claim, not evidence.
 5. **Bounce** — small defect: fix it yourself (cheaper than a round-trip). Substantial: ONE delta bounce via SendMessage to the same agent — only what's wrong, never a restated brief. Still wrong → take over in the opus lane. No third round exists.
 6. **Verify** — gates green by your own run; UI work gets a playwright-cli screenshot.
-7. **Land** — builders never commit; review is the enforcement, not the instruction. You commit only when the user asks, never with AI attribution trailers.
+7. **Land** — builders never commit; review is the enforcement, not the instruction. A plugin hook additionally hard-blocks destructive Bash (`git push`, `reset --hard`, `rm -rf`, `DROP TABLE`) from builder agents only — a blocked command surfaces under OPEN in the report; supervisor and user are never intercepted. You commit only when the user asks, never with AI attribution trailers.
 8. **Report** — compact: what changed, lanes used, evidence, judgment calls, open items.
 
 ## Queues (3+ subtasks)
