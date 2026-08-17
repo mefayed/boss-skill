@@ -60,6 +60,8 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `use sonnet` / `ask fable` / `no fable` | overrides the triage directly                                     |
 | `delegate to codex` / `delegate to terra`  | routes implementation to the Codex lane (optional, see below)     |
 | `second opinion from codex` / `consult sol` | adds Codex as an additional advisor                              |
+| `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
+| `debate it, include codex` / `ask terra and sol` | adds one Codex advocate per named model to the debate       |
 
 Directives persist for the session until countermanded.
 
@@ -70,6 +72,7 @@ skills/boss/SKILL.md      the orchestration protocol (triage, briefs, review, es
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
+agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
 ```
 
 ### The lanes
@@ -83,6 +86,7 @@ agents/fable-advisor.md   design critique before irreversible decisions; advises
 | opus        | cross-cutting, security, uncertain spec                              |
 | opus-deep   | rare, genuinely hard                                                 |
 | advisor     | one-exchange critique on architecture, migrations, security approach |
+| debate      | validate an approach when 2+ real options exist (see below)          |
 | codex       | outside implementer or second opinion via the Codex CLI (optional)   |
 
 ### The loop
@@ -94,9 +98,21 @@ agents/fable-advisor.md   design critique before irreversible decisions; advises
 5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → supervisor takes over. No loops.
 6. Queues get a progress file, decided-facts carry-forward, and a coherence close (full gates + repo-wide grep) at the end.
 
+## Debate — validating an approach
+
+When you want proof that an approach is the best one before expensive work, say `debate it` (or `validate this approach`, `compare options`). The supervisor:
+
+1. Traces the code and frames 2–3 real candidate approaches with shared facts.
+2. Spawns one read-only **advocate** per candidate, in parallel, on **different models** (default Sonnet + Opus) so it isn't one model arguing with itself. Each argues its position with `file:line` evidence and must concede the condition under which a rival wins.
+3. A **Fable judge** rules: `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
+4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.
+5. You get a compact verdict; the expensive work still waits for your green light.
+
+Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `think more` → Opus advocates, Fable judges. **Codex joins only when you name it** ("debate it, include codex" / "ask terra and sol") — never automatically, since it spends your OpenAI credits.
+
 ## Optional: Codex as an extra lane
 
-If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way) or as a second advisor. Naming a model routes it explicitly: "sol" → GPT-5.6-Sol, "terra" → GPT-5.6-Terra, "luna" → GPT-5.6-Luna.
+If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly: "sol" → GPT-5.6-Sol, "terra" → GPT-5.6-Terra, "luna" → GPT-5.6-Luna. Codex is always opt-in by name — boss never spends your OpenAI credits unasked.
 
 Not installed? Two steps:
 
