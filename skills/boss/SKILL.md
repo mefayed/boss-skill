@@ -64,6 +64,8 @@ Effort dials apply: "careful with tokens" → 2 advocates (haiku + sonnet), opus
    DONE WHEN: observable criteria
    FACTS: decisions from earlier subtasks that must be honored
    ```
+
+   High-risk briefs (migrations, deletions, cross-cutting, ambiguous spec) add one line — `CHECKPOINT: after tracing, before your first edit, report your plan in ≤5 lines and wait` — boss approves or redirects via SendMessage, then the builder proceeds. One checkpoint max; never for routine lanes. Long-running background builders get a mid-flight `git diff --stat` spot-check, not a stream: watching narration anchors the reviewer, the diff can't be charmed.
 4. **Review** — read the actual diff, not the report.
    - Test edits first: a deleted/skipped test or weakened assertion = failing until justified. Green proves less if the yardstick was shortened.
    - Checklist: hardcoded/fixture returns on real paths, broad catch-return-default, a second http/error/logging idiom beside the existing one, dead code, no-caller abstractions, APIs absent from the lockfile.
