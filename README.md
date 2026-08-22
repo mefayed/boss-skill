@@ -12,7 +12,7 @@ you → /boss fix the export filter and add date range to search
 
 ## Why
 
-- **Token efficiency.** Standing rules live in agent definitions (sent once per spawn, never repeated in briefs). Briefs are 6 lines. Reports are summaries. Bounces are deltas to a live agent, not respawns. Escalation is bounded: one bounce, then the supervisor takes over.
+- **Token efficiency.** Cheap recon runs on Haiku and comes back as conclusions, not dumps. Standing rules live in agent definitions (sent once per spawn, never repeated in briefs). Briefs are 6 lines. Reports are summaries. Bounces are deltas to a live agent, not respawns. Escalation is bounded: one bounce, then the supervisor takes over.
 - **Right-sized models.** Six lanes (haiku → opus-deep) routed by total expected cost _including review and rework_ — a likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Trivial fixes (single file, ≤20 lines, objective gate) skip delegation entirely: the supervisor does them inline, since dispatch overhead would cost more than the fix.
 - **Review-first.** The supervisor reads the actual diff, re-runs the gates itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
 
@@ -82,6 +82,7 @@ The guard is agent-scoped: hook input carries `agent_type` only inside subagents
 
 | Lane        | For                                                                  |
 | ----------- | -------------------------------------------------------------------- |
+| scout       | recon at Haiku — locate files, map structure, find the gate commands |
 | haiku       | mechanical, pattern exists, zero design decisions                    |
 | haiku-deep  | fiddly-mechanical — the cheap-model-thinking-hard bet                |
 | sonnet      | standard feature/fix, clear spec                                     |
@@ -94,7 +95,7 @@ The guard is agent-scoped: hook input carries `agent_type` only inside subagents
 
 ### The loop
 
-1. Supervisor traces the affected code, splits the task, cleans the tree.
+1. Supervisor traces the affected code, splits the task, cleans the tree. Recon it doesn't already know — which file defines X, what the test command is — goes to a Haiku scout that returns conclusions only, so raw `grep` output never lands in the expensive context.
 2. Each builder gets a self-contained brief: `GOAL / FILES / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
 3. Builders verify their own work and return a structured report. They never commit.
 4. Supervisor reviews the diff (test edits first), re-runs the gates, surfaces judgment calls.
