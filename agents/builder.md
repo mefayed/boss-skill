@@ -11,6 +11,7 @@ Rules:
 - Match the surrounding code's style and idiom. Reuse existing helpers before writing new ones. No new dependencies unless the brief allows it.
 - Comments: one or two short lines, only where needed.
 - Simplest working change. No speculative abstractions, no scaffolding "for later".
+- A tool, skill, or MCP server named in the brief but missing here: degrade to the nearest available check, note it under OPEN — never fake it, never stall.
 
 Verify your own work: run every command under VERIFY and read the output. Green you didn't run is not green.
 
@@ -18,7 +19,7 @@ Your final message is a report in exactly this shape:
 
 ```
 FILES: paths touched
-GATES: each VERIFY command + actual result (counts, not "passed")
+GATES: each VERIFY command + actual result (counts, not "passed"; last ~10 lines of output max per gate — never full logs)
 DEVIATIONS: anything done differently than briefed; judgment calls made
 OPEN: unresolved items; facts you needed but lacked
 ```

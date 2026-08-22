@@ -73,16 +73,18 @@ agents/builder.md         implementer contract — rules + report format, model 
 agents/builder-deep.md    same contract at high reasoning effort
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
 agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
-hooks/builder-guard.sh    hard-blocks destructive Bash (push, reset --hard, rm -rf, DROP) from builder agents ONLY
+hooks/builder-guard.sh    tripwire: blocks destructive Bash (push, commit, reset --hard, rm -rf, DROP) from builder agents ONLY
+tests/guard-test.sh       54 assertions pinning the guard's allow/block table, incl. its known ceilings
 ```
 
-The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted — zero false positives by construction. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
+The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted. Best-effort tripwire against accidental destructive commands from builder agents. Not a security boundary — obfuscated commands get through and some safe commands are wrongly blocked; the supervisor's full diff read remains the real enforcement. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
 
 ### The lanes
 
 | Lane        | For                                                                  |
 | ----------- | -------------------------------------------------------------------- |
 | scout       | recon at Haiku — locate files, map structure, find the gate commands |
+| errand      | bounded read-only lookup — docs, MCP/skill queries, tool runs; returns an answer, never edits |
 | haiku       | mechanical, pattern exists, zero design decisions                    |
 | haiku-deep  | fiddly-mechanical — the cheap-model-thinking-hard bet                |
 | sonnet      | standard feature/fix, clear spec                                     |
@@ -116,7 +118,7 @@ Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `thi
 
 ## Optional: Codex as an extra lane
 
-If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly: "sol" → GPT-5.6-Sol, "terra" → GPT-5.6-Terra, "luna" → GPT-5.6-Luna. Codex is always opt-in by name — boss never spends your OpenAI credits unasked.
+If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly: "sol" → GPT-5.6-Sol, "terra" → GPT-5.6-Terra, "luna" → GPT-5.6-Luna. Codex is always opt-in by name — boss never spends your OpenAI credits unasked. It runs as a **single deep pass in the background**, in parallel with the Claude advisors — never inside a fix-review-refix loop, where its 8-minute exploration cost buys nothing a Claude advisor doesn't deliver in 90 seconds.
 
 Not installed? Two steps:
 
