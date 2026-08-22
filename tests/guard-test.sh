@@ -109,11 +109,24 @@ check "scope: no agent_type field, git push" 0 "" "git push"
 check "scope: boss:advocate, rm -rf" 0 "boss:advocate" "rm -rf /tmp/x"
 check "scope: fable-advisor, git push" 0 "fable-advisor" "git push"
 
+# errand is guarded the same as builder — the guard scope was widened to
+# builder-or-errand, not narrowed to builder-only.
+check "errand: block: git push" 2 boss:errand "git push"
+check "errand: block: rm -rf" 2 boss:errand "rm -rf /tmp/x"
+check "errand: allow: git status" 0 boss:errand "git status"
+
+# PINNED NEGATIVE CONTROL: the guard is deliberately NOT widened to every
+# subagent — it's session-global, so widening would block commands from
+# general-purpose subagents in unrelated non-boss workflows on this machine.
+# This pins that decision so a future "just widen it" change fails loudly.
+check "negative control: general-purpose stays unguarded" 0 general-purpose "rm -rf /tmp/x"
+
 # jq-absent fallback path (currently untested elsewhere, since ubuntu-latest
 # ships jq and every case above runs with it on PATH).
 check "no-jq: block: git push" 2 boss:builder "git push" "" nojq
 check "no-jq: allow: git status" 0 boss:builder "git status" "" nojq
 check "no-jq: scope: boss:advocate, rm -rf" 0 boss:advocate "rm -rf /tmp/x" "" nojq
+check "no-jq: errand: block: git push" 2 boss:errand "git push" "" nojq
 # KNOWN, ACCEPTED false positive: without jq the guard falls back to
 # matching the whole raw payload, so an unrelated "description" field
 # mentioning "git commit" trips the guard even though the actual command
@@ -201,6 +214,14 @@ raw_check "parsed: empty command + note mentioning git push -> allowed" \
   '{"agent_type":"boss:builder","tool_input":{"command":""},"note":"git push is prohibited"}' 0
 raw_check "parsed: nested meta.agent_type does not scope the guard" \
   '{"agent_type":null,"meta":{"agent_type":"boss:builder"},"tool_input":{"command":"git push"}}' 0
+
+if grep -q 'disallowedTools: Write, Edit, NotebookEdit, Agent' "$dir/agents/errand.md" 2>/dev/null; then
+  echo "PASS: errand.md still carries its denial list"
+  pass=$((pass + 1))
+else
+  echo "FAIL: errand.md denial list missing or changed"
+  fail=$((fail + 1))
+fi
 
 echo "----"
 echo "passed: $pass, failed: $fail"

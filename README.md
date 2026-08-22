@@ -71,13 +71,16 @@ Directives persist for the session until countermanded.
 skills/boss/SKILL.md      the orchestration protocol (triage, briefs, review, escalation)
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
+agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
 agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
-hooks/builder-guard.sh    tripwire: blocks destructive Bash (push, commit, reset --hard, rm -rf, DROP) from builder agents ONLY
-tests/guard-test.sh       54 assertions pinning the guard's allow/block table, incl. its known ceilings
+hooks/builder-guard.sh    tripwire: blocks destructive Bash (push, commit, reset --hard, rm -rf, DROP) from builder + errand agents ONLY
+tests/guard-test.sh       60 assertions pinning the guard's allow/block table, incl. its known ceilings
 ```
 
-The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted. Best-effort tripwire against accidental destructive commands from builder agents. Not a security boundary — obfuscated commands get through and some safe commands are wrongly blocked; the supervisor's full diff read remains the real enforcement. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
+The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted. Best-effort tripwire against accidental destructive commands from builder and errand agents. Not a security boundary — obfuscated commands get through (including any indirection that hides the command text, such as writing it to a file and running `sh that-file`; an agent building this release did exactly that unprompted) and some safe commands are wrongly blocked; the supervisor's full diff read remains the real enforcement. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
+
+The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch and shares the builders' destructive-Bash tripwire. It is NOT read-only enforcement: Bash and any writable MCP tools remain live, and the clean-`git status` check cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
 
 ### The lanes
 

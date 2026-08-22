@@ -1,9 +1,11 @@
 #!/bin/sh
-# Best-effort tripwire against accidental destructive Bash from builder
-# subagents only. NOT a security boundary: deliberate obfuscation gets
-# through by design (git${IFS}push, quote-splitting, git aliases, and a
-# command split across lines by an escaped newline — matching is per line,
-# on both the parsed and the raw path). The real
+# Best-effort tripwire against accidental destructive Bash from builder and
+# errand subagents only. NOT a security boundary: deliberate obfuscation gets
+# through by design (git${IFS}push, quote-splitting, git aliases, a command
+# split across lines by an escaped newline — matching is per line, on both the
+# parsed and the raw path — and any indirection that hides the command text
+# from this hook, such as writing it to a file and running `sh that-file`,
+# which an agent has already done here in practice. The real
 # enforcement is the supervisor's full diff read after the builder reports.
 # Main thread, supervisor, advisors, and the user's own commands are never
 # intercepted (no agent_type = exit 0). Fails open on unexpected input.
@@ -23,12 +25,12 @@ fi
 
 if [ "$parsed" = 1 ]; then
   case "$agent_type" in
-    *builder*) ;;
+    *builder*|*errand*) ;;
     *) exit 0 ;;
   esac
   [ -n "$cmd" ] || exit 0
 else
-  printf '%s' "$p" | grep -q '"agent_type"[[:space:]]*:[[:space:]]*"[^"]*builder' || exit 0
+  printf '%s' "$p" | grep -Eq '"agent_type"[[:space:]]*:[[:space:]]*"[^"]*(builder|errand)' || exit 0
   cmd=$p
 fi
 
