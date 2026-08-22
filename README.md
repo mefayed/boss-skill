@@ -130,6 +130,19 @@ npm install -g @openai/codex        # the Codex CLI, then run `codex` once to lo
 
 Without it, the codex lane simply doesn't exist — everything else works unchanged.
 
+## Scoping what an agent can reach
+
+There is no per-dispatch scoping — the Agent tool takes no tools parameter. A lane's surface is fixed in its agent file:
+
+| Frontmatter | Effect |
+| ----------- | ------ |
+| `tools:` | Allowlist. Naming it also strips the `Skill` tool, every MCP tool, and `ToolSearch` — verified: an agent pinned to `Read, Glob, Grep, Bash` sees no MCP at all |
+| `disallowedTools:` | Denylist, takes patterns — `mcp__github`, `mcp__*` |
+| `mcpServers:` | Give one agent specific MCP servers, kept out of the main conversation |
+| `skills:` | Preload full skill content at startup |
+
+Omitting `tools:` inherits everything — but MCP schemas are **deferred**: names only, ~0 tokens until a tool is actually called. That is why the errand lane omits it. Inheriting is what lets it run skill and MCP errands, and it costs nothing until one is used.
+
 ## Requirements
 
 - Claude Code with subagent support (`.claude/agents` definitions, per-dispatch model overrides).
