@@ -12,9 +12,9 @@ you → /boss fix the export filter and add date range to search
 
 ## Why
 
-- **Token efficiency.** Cheap recon runs on Haiku and comes back as conclusions, not dumps. Standing rules live in agent definitions (sent once per spawn, never repeated in briefs). Briefs are 6 lines. Reports are summaries. Bounces are deltas to a live agent, not respawns. Escalation is bounded: one bounce, then the supervisor takes over.
-- **Right-sized models.** Six lanes (haiku → opus-deep) routed by total expected cost _including review and rework_ — a likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Trivial fixes (single file, ≤20 lines, objective gate) skip delegation entirely: the supervisor does them inline, since dispatch overhead would cost more than the fix.
-- **Review-first.** The supervisor reads the actual diff, re-runs the gates itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
+- **Token efficiency.** Standing rules live in agent definitions (sent once per spawn, never repeated in briefs). Briefs are 6 lines. Reports are summaries. Bounces are deltas to a live agent, not respawns. Escalation is bounded: one bounce, then the supervisor takes over.
+- **Right-sized models.** Six lanes (haiku → opus-deep) routed by total expected cost _including review and rework_ — a likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default — localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat, since dispatch that buys no parallelism, specialization, or context isolation costs a whole session for nothing.
+- **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
 
 ## Install
 
@@ -86,7 +86,6 @@ The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch and 
 
 | Lane        | For                                                                  |
 | ----------- | -------------------------------------------------------------------- |
-| scout       | recon at Haiku — locate files, map structure, find the gate commands |
 | errand      | bounded read-only lookup — docs, MCP/skill queries, tool runs; returns an answer, never edits |
 | haiku       | mechanical, pattern exists, zero design decisions                    |
 | haiku-deep  | fiddly-mechanical — the cheap-model-thinking-hard bet                |
@@ -94,16 +93,16 @@ The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch and 
 | sonnet-deep | hard but contained                                                   |
 | opus        | cross-cutting, security, uncertain spec                              |
 | opus-deep   | rare, genuinely hard                                                 |
-| advisor     | one-exchange critique on architecture, migrations, security approach |
+| advisor     | one-exchange critique, on demand — a blocking decision or the user asks |
 | debate      | validate an approach when 2+ real options exist (see below)          |
 | codex       | outside implementer or second opinion via the Codex CLI (optional)   |
 
 ### The loop
 
-1. Supervisor traces the affected code, splits the task, cleans the tree. Recon it doesn't already know — which file defines X, what the test command is — goes to a Haiku scout that returns conclusions only, so raw `grep` output never lands in the expensive context.
+1. Supervisor traces the affected code, splits the task, records a baseline `git status`. Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
 2. Each builder gets a self-contained brief: `GOAL / FILES / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
 3. Builders verify their own work and return a structured report. They never commit.
-4. Supervisor reviews the diff (test edits first), re-runs the gates, surfaces judgment calls.
+4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, surfaces judgment calls.
 5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → supervisor takes over. No loops.
 6. Queues get a progress file, decided-facts carry-forward, and a coherence close (full gates + repo-wide grep) at the end.
 
