@@ -58,10 +58,10 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `boss think more`                       | shifts dispatches one step up (deep variant or next model)        |
 | `boss careful with tokens`              | shifts down, skips the advisor unless irreversible, batches edits |
 | `use sonnet` / `ask fable` / `no fable` | overrides the triage directly                                     |
-| `delegate to codex` / `delegate to terra`  | routes implementation to the Codex lane (optional, see below)     |
-| `second opinion from codex` / `consult sol` | adds Codex as an additional advisor                              |
+| `delegate to codex` / `delegate to astra`  | routes implementation to the Codex lane (optional, see below)     |
+| `second opinion from codex` / `consult astra` | adds Codex as an additional advisor                              |
 | `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
-| `debate it, include codex` / `ask terra and sol` | adds one Codex advocate per named model to the debate       |
+| `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 
 Directives persist for the session until countermanded.
 
@@ -116,11 +116,11 @@ When you want proof that an approach is the best one before expensive work, say 
 4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.
 5. You get a compact verdict; the expensive work still waits for your green light.
 
-Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `think more` → Opus advocates, Fable judges. **Codex joins only when you name it** ("debate it, include codex" / "ask terra and sol") — never automatically, since it spends your OpenAI credits.
+Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `think more` → Opus advocates, Fable judges. **Codex joins only when you name it** ("debate with astra" / "debate it, include codex") — never automatically, since it spends your OpenAI credits.
 
 ## Optional: Codex as an extra lane
 
-If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly: "sol" → GPT-5.6-Sol, "terra" → GPT-5.6-Terra, "luna" → GPT-5.6-Luna. Codex is always opt-in by name — boss never spends your OpenAI credits unasked. It runs as a **single deep pass in the background**, in parallel with the Claude advisors — never inside a fix-review-refix loop, where its 8-minute exploration cost buys nothing a Claude advisor doesn't deliver in 90 seconds.
+If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly — "debate with astra", "consult sol", "delegate to terra". The model list is **never hardcoded**: boss resolves the name against the live Codex catalog plus your config at dispatch time, so a model released tomorrow works tomorrow, with no update to this skill. Codex is always opt-in by name — boss never spends your OpenAI credits unasked. It runs as a **single deep pass in the background**, in parallel with the Claude advisors — never inside a fix-review-refix loop, where its 8-minute exploration cost buys nothing a Claude advisor doesn't deliver in 90 seconds.
 
 Not installed? Two steps:
 

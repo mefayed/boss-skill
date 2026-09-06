@@ -1,6 +1,6 @@
 {
   "name": "boss",
   "description": "Multi-model orchestration: a supervisor session keeps small work inline, dispatches the rest to the cheapest capable model, reviews every diff in full, and reports back compactly.",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "author": { "name": "Mohamed Fayed" }
 }
