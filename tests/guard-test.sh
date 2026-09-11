@@ -223,6 +223,25 @@ else
   fail=$((fail + 1))
 fi
 
+# builder.md and builder-deep.md must stay byte-identical below the frontmatter:
+# the deep variant differs only by name, description and `effort: high`. Nothing
+# else enforces that, and a contract edit applied to one file and not the other
+# would silently split the lane pairs.
+strip_frontmatter() {
+  awk 'BEGIN { n = 0 } /^---$/ { n++; next } n >= 2' "$1"
+}
+if [ -f "$dir/agents/builder.md" ] && [ -f "$dir/agents/builder-deep.md" ] &&
+   strip_frontmatter "$dir/agents/builder.md" > "$shim/builder.body" &&
+   strip_frontmatter "$dir/agents/builder-deep.md" > "$shim/builder-deep.body" &&
+   [ -s "$shim/builder.body" ] &&
+   cmp -s "$shim/builder.body" "$shim/builder-deep.body"; then
+  echo "PASS: builder.md and builder-deep.md bodies are identical"
+  pass=$((pass + 1))
+else
+  echo "FAIL: builder.md and builder-deep.md bodies diverged"
+  fail=$((fail + 1))
+fi
+
 echo "----"
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]
