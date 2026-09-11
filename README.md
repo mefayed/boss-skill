@@ -80,7 +80,7 @@ tests/guard-test.sh       60 assertions pinning the guard's allow/block table, i
 
 The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted. Best-effort tripwire against accidental destructive commands from builder and errand agents. Not a security boundary — obfuscated commands get through (including any indirection that hides the command text, such as writing it to a file and running `sh that-file`; an agent building this release did exactly that unprompted) and some safe commands are wrongly blocked; the supervisor's full diff read remains the real enforcement. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
 
-The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch and shares the builders' destructive-Bash tripwire. It is NOT read-only enforcement: Bash and any writable MCP tools remain live, and the clean-`git status` check cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
+The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch and shares the builders' destructive-Bash tripwire. It is NOT read-only enforcement: Bash and any writable MCP tools remain live, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
 
 ### The lanes
 
@@ -99,7 +99,7 @@ The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch and 
 
 ### The loop
 
-1. Supervisor traces the affected code, splits the task, records a baseline `git status`. Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
+1. Supervisor traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
 2. Each builder gets a self-contained brief: `GOAL / FILES / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
 3. Builders verify their own work and return a structured report. They never commit.
 4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, surfaces judgment calls.
