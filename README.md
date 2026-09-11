@@ -74,13 +74,13 @@ agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
 agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
-hooks/builder-guard.sh    tripwire: blocks destructive Bash (push, commit, reset --hard, rm -rf, DROP) from builder + errand + advocate agents ONLY
-tests/guard-test.sh       60 assertions pinning the guard's allow/block table, incl. its known ceilings
+hooks/builder-guard.sh    tripwire: blocks destructive Bash (push, commit, reset --hard, rm -rf, DROP, gh/curl writes) from builder + errand + advocate agents ONLY
+tests/guard-test.sh       pins the guard's allow/block table and the agent-file shape, incl. known ceilings
 ```
 
 The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted. Best-effort tripwire against accidental destructive commands from builder, errand and advocate agents. Not a security boundary — obfuscated commands get through (including any indirection that hides the command text, such as writing it to a file and running `sh that-file`; an agent building this release did exactly that unprompted) and some safe commands are wrongly blocked; the supervisor's full diff read remains the real enforcement. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
 
-The errand and advocate agents have Write/Edit/NotebookEdit/Agent hard-removed at dispatch and share the builders' destructive-Bash tripwire. It is NOT read-only enforcement: Bash and any writable MCP tools remain live, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
+The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. Errand and advocate share the builders' destructive-Bash tripwire. Neither is read-only enforcement: Bash stays live in every one of these lanes and the guard only pattern-matches it — a plugin cannot sandbox a shell, so an authenticated CLI the guard does not name can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
 
 ### The lanes
 
@@ -138,9 +138,9 @@ There is no per-dispatch scoping — the Agent tool takes no tools parameter. A 
 
 | Frontmatter | Effect |
 | ----------- | ------ |
-| `tools:` | Allowlist. Naming it also strips the `Skill` tool, every MCP tool, and `ToolSearch` — verified: an agent pinned to `Read, Glob, Grep, Bash` sees no MCP at all |
+| `tools:` | Allowlist: the lane gets exactly what you name and nothing else. Omit `Skill`, the MCP tools or `ToolSearch` and the lane cannot reach them — verified: an agent pinned to `Read, Glob, Grep, Bash` sees no MCP at all |
 | `disallowedTools:` | Denylist, takes patterns — `mcp__github`, `mcp__*` |
-| `mcpServers:` | Give one agent specific MCP servers, kept out of the main conversation |
+| `mcpServers:` | Ignored in plugin agent files — the loader warns and drops it. Subagents inherit the session's servers; close `tools:` to withhold them |
 | `skills:` | Preload full skill content at startup |
 
 Omitting `tools:` inherits everything — but MCP schemas are **deferred**: names only, ~0 tokens until a tool is actually called. That is why the errand lane omits it. Inheriting is what lets it run skill and MCP errands, and it costs nothing until one is used.

@@ -109,11 +109,56 @@ check "scope: no agent_type field, git push" 0 "" "git push"
 check "scope: boss:advocate, rm -rf -> blocked" 2 "boss:advocate" "rm -rf /tmp/x"
 check "scope: boss:advocate, git commit -> blocked" 2 "boss:advocate" "git commit -m x"
 check "scope: boss:advocate, read-only command stays allowed" 0 "boss:advocate" "grep -rn foo ."
+check "external: gh api POST -> blocked" 2 "boss:advocate" "gh api --method POST /repos/x/y/issues"
+check "external: curl -X DELETE -> blocked" 2 "boss:errand" "curl -X DELETE https://example.com/thing"
+check "external: gh pr create -> blocked" 2 "boss:builder" "gh pr create --title x"
+check "external: gh api read stays allowed" 0 "boss:advocate" "gh api /repos/x/y"
+check "external: plain curl read stays allowed" 0 "boss:errand" "curl -s https://example.com/doc.json"
+# The implicit-write spellings are the ones an agent actually types: gh api -f
+# defaults to POST, curl -d/-F/-T default to POST/PUT. Catching only -X POST was
+# a coverage illusion.
+check "external: gh api -f (implicit POST) -> blocked" 2 "boss:advocate" "gh api /repos/x/y/issues -f title=x"
+check "external: curl -d (implicit POST) -> blocked" 2 "boss:advocate" "curl -d {} https://x"
+check "external: curl -T (implicit PUT) -> blocked" 2 "boss:advocate" "curl -T file https://x"
+check "external: gh issue comment -> blocked" 2 "boss:errand" "gh issue comment 5 --body hi"
+check "external: gh pr review -> blocked" 2 "boss:advocate" "gh pr review 5 --approve"
+check "external: gh workflow run -> blocked" 2 "boss:builder" "gh workflow run ci.yml"
+check "external: gh pr view stays allowed" 0 "boss:advocate" "gh pr view 5"
+check "external: gh pr list stays allowed" 0 "boss:advocate" "gh pr list"
+check "external: curl -x proxy is not a write" 0 "boss:errand" "curl -x proxy https://x"
+# curl -f (fail silently) is a read and differs from -F (form upload) only in case;
+# matching these case-insensitively blocked ordinary fetches.
+check "external: curl -f is a read, not a form" 0 "boss:advocate" "curl -f https://example.com"
+check "external: gh api with an explicit GET stays allowed" 0 "boss:advocate" "gh api --method GET /search/issues -f q=bug"
+check "external: gh pr list with merge in the search text" 0 "boss:advocate" "gh pr list --search fix merge conflict"
+# the unspaced and equals spellings are as common as the spaced ones
+check "external: curl -XPOST -> blocked" 2 "boss:advocate" "curl -XPOST https://x"
+check "external: curl --data= -> blocked" 2 "boss:advocate" "curl --data=x https://x"
+check "external: gh api --method=POST -> blocked" 2 "boss:advocate" "gh api --method=POST /x"
+check "external: gh issue lock -> blocked" 2 "boss:errand" "gh issue lock 5"
+# curl --json is the modern JSON POST; attached values (-dfoo, -ftitle=x) are the
+# same write spelled tighter and escaped an earlier version of these patterns.
+check "external: curl --json -> blocked" 2 "boss:advocate" "curl --json {} https://x"
+check "external: curl -dfoo attached value -> blocked" 2 "boss:advocate" "curl -dfoo https://x"
+check "external: gh api -ftitle attached value -> blocked" 2 "boss:advocate" "gh api /repos/x/y/issues -ftitle=x"
+check "external: gh secret set -> blocked" 2 "boss:builder" "gh secret set FOO"
+check "external: gh run rerun -> blocked" 2 "boss:errand" "gh run rerun 12"
+check "external: lowercase -X post still executes -> blocked" 2 "boss:advocate" "curl -X post https://x"
+# curl -G turns data flags into a query string, and a GraphQL query is a read even
+# though the transport is POST. Blocking either stops ordinary research.
+check "external: curl -G is a GET, not a write" 0 "boss:advocate" "curl -G --data-urlencode q=bug https://x/search"
+check "external: gh api graphql query stays allowed" 0 "boss:advocate" "gh api graphql -f query=query{viewer{login}}"
+check "external: gh api graphql mutation -> blocked" 2 "boss:advocate" "gh api graphql -f query=mutation{addStar}"
+check "external: gh run list stays allowed" 0 "boss:advocate" "gh run list"
 check "scope: bare advocate, rm -rf -> blocked" 2 "advocate" "rm -rf /tmp/x"
 check "scope: anti-advocate is NOT ours -> allowed" 0 "anti-advocate" "rm -rf /tmp/x"
-check "scope: otherplugin:advocate -> blocked" 2 "otherplugin:advocate" "git push"
+check "scope: otherplugin:advocate is not ours -> allowed" 0 "otherplugin:advocate" "git push"
+check "scope: cavecrew-builder is caveman's, not ours -> allowed" 0 "caveman:cavecrew-builder" "git push"
+check "scope: boss:builder-deep -> blocked" 2 "boss:builder-deep" "git push"
+check "scope: bare builder-deep -> blocked" 2 "builder-deep" "git push"
 check "no-jq: anti-advocate is NOT ours -> allowed" 0 anti-advocate "rm -rf /tmp/x" "" nojq
 check "no-jq: builder-deep still matches" 2 boss:builder-deep "git push" "" nojq
+check "no-jq: otherplugin:builder is not ours -> allowed" 0 otherplugin:builder "git push" "" nojq
 check "scope: fable-advisor, git push" 0 "fable-advisor" "git push"
 
 # errand is guarded the same as builder — the guard scope was widened to
@@ -260,16 +305,47 @@ else
   pass=$((pass + 1))
 fi
 
-# advocate must subtract from the inherited tool pool, never enumerate it: a closed
-# `tools:` list silently drops WebSearch, WebFetch and every session MCP server, which
-# is what left debate advocates unable to research while the judge could.
-if grep -q '^disallowedTools:' "$dir/agents/advocate.md" && ! grep -q '^tools:' "$dir/agents/advocate.md"; then
-  echo "PASS: advocate.md subtracts tools instead of enumerating them"
-  pass=$((pass + 1))
-else
-  echo "FAIL: advocate.md must use disallowedTools:, not a closed tools: list"
-  fail=$((fail + 1))
-fi
+# The advisory lanes enumerate a closed `tools:` list on purpose. It must carry the
+# research tools (the judge can search; an advocate that cannot is why this changed),
+# and must never carry a write or dispatch tool, nor be replaced by `disallowedTools:`,
+# which would silently hand the lane every writable MCP server in the session.
+for adv in advocate fable-advisor; do
+  f="$dir/agents/$adv.md"
+  # normalise: strip the key, YAML brackets and quotes, so `tools: [A, B]` and
+  # `tools: A, B` are checked identically — a bracketed list slipped past this once.
+  line=$(grep '^tools:' "$f" 2>/dev/null | sed 's/^tools://; s/[]["'"'"']/ /g')
+  if [ -z "$line" ]; then
+    echo "FAIL: $adv.md must enumerate a closed tools: list, not inherit"
+    fail=$((fail + 1))
+  elif ! printf '%s' "$line" | grep -q 'WebSearch' || ! printf '%s' "$line" | grep -q 'WebFetch'; then
+    echo "FAIL: $adv.md cannot research — tools: is missing WebSearch/WebFetch"
+    fail=$((fail + 1))
+  elif printf '%s' "$line" | grep -Eq '(^|[ ,])(Write|Edit|NotebookEdit|Agent)([ ,]|$)'; then
+    echo "FAIL: $adv.md tools: grants a write or dispatch tool"
+    fail=$((fail + 1))
+  elif printf '%s' "$line" | grep -Eq 'mcp__|ToolSearch'; then
+    echo "FAIL: $adv.md tools: reaches an MCP server — the thing a closed list exists to withhold"
+    fail=$((fail + 1))
+  else
+    echo "PASS: $adv.md keeps a closed, research-capable, write-free tools: list"
+    pass=$((pass + 1))
+  fi
+done
+
+# A new lane added to agents/ but not to the guard's case list ships unguarded and
+# nobody notices. fable-advisor is the deliberate exception: it never runs briefs.
+guard_case=$(grep -A1 'case "\$agent_type" in' "$guard" | tail -1)
+for f in "$dir"/agents/*.md; do
+  n=$(grep -m1 '^name:' "$f" | sed 's/^name:[[:space:]]*//')
+  [ "$n" = "fable-advisor" ] && continue
+  if printf '%s' "$guard_case" | grep -q "[|( ]$n[|)]"; then
+    pass=$((pass + 1))
+  else
+    echo "FAIL: lane '$n' exists in agents/ but the guard does not name it"
+    fail=$((fail + 1))
+  fi
+done
+echo "PASS: every dispatchable lane is named in the guard"
 
 echo "----"
 echo "passed: $pass, failed: $fail"
