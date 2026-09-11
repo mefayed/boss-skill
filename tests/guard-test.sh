@@ -106,7 +106,14 @@ ls -la
 EOF
 
 check "scope: no agent_type field, git push" 0 "" "git push"
-check "scope: boss:advocate, rm -rf" 0 "boss:advocate" "rm -rf /tmp/x"
+check "scope: boss:advocate, rm -rf -> blocked" 2 "boss:advocate" "rm -rf /tmp/x"
+check "scope: boss:advocate, git commit -> blocked" 2 "boss:advocate" "git commit -m x"
+check "scope: boss:advocate, read-only command stays allowed" 0 "boss:advocate" "grep -rn foo ."
+check "scope: bare advocate, rm -rf -> blocked" 2 "advocate" "rm -rf /tmp/x"
+check "scope: anti-advocate is NOT ours -> allowed" 0 "anti-advocate" "rm -rf /tmp/x"
+check "scope: otherplugin:advocate -> blocked" 2 "otherplugin:advocate" "git push"
+check "no-jq: anti-advocate is NOT ours -> allowed" 0 anti-advocate "rm -rf /tmp/x" "" nojq
+check "no-jq: builder-deep still matches" 2 boss:builder-deep "git push" "" nojq
 check "scope: fable-advisor, git push" 0 "fable-advisor" "git push"
 
 # errand is guarded the same as builder — the guard scope was widened to
@@ -125,7 +132,7 @@ check "negative control: general-purpose stays unguarded" 0 general-purpose "rm 
 # ships jq and every case above runs with it on PATH).
 check "no-jq: block: git push" 2 boss:builder "git push" "" nojq
 check "no-jq: allow: git status" 0 boss:builder "git status" "" nojq
-check "no-jq: scope: boss:advocate, rm -rf" 0 boss:advocate "rm -rf /tmp/x" "" nojq
+check "no-jq: scope: boss:advocate, rm -rf -> blocked" 2 boss:advocate "rm -rf /tmp/x" "" nojq
 check "no-jq: errand: block: git push" 2 boss:errand "git push" "" nojq
 # KNOWN, ACCEPTED false positive: without jq the guard falls back to
 # matching the whole raw payload, so an unrelated "description" field
@@ -239,6 +246,28 @@ if [ -f "$dir/agents/builder.md" ] && [ -f "$dir/agents/builder-deep.md" ] &&
   pass=$((pass + 1))
 else
   echo "FAIL: builder.md and builder-deep.md bodies diverged"
+  fail=$((fail + 1))
+fi
+
+# The plugin agent loader silently drops permissionMode, hooks and mcpServers from
+# plugin agent files (it warns and continues). A lane that declares one of them reads
+# as configured while behaving as if it were not, so keep them out of the repo.
+if grep -lE '^(permissionMode|hooks|mcpServers):' "$dir"/agents/*.md >/dev/null 2>&1; then
+  echo "FAIL: an agent file declares a key ignored for plugin agents (permissionMode/hooks/mcpServers)"
+  fail=$((fail + 1))
+else
+  echo "PASS: no agent file declares a key the plugin loader ignores"
+  pass=$((pass + 1))
+fi
+
+# advocate must subtract from the inherited tool pool, never enumerate it: a closed
+# `tools:` list silently drops WebSearch, WebFetch and every session MCP server, which
+# is what left debate advocates unable to research while the judge could.
+if grep -q '^disallowedTools:' "$dir/agents/advocate.md" && ! grep -q '^tools:' "$dir/agents/advocate.md"; then
+  echo "PASS: advocate.md subtracts tools instead of enumerating them"
+  pass=$((pass + 1))
+else
+  echo "FAIL: advocate.md must use disallowedTools:, not a closed tools: list"
   fail=$((fail + 1))
 fi
 
