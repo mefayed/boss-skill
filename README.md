@@ -15,6 +15,7 @@ you → /boss fix the export filter and add date range to search
 - **Token efficiency.** Standing rules live in agent definitions (sent once per spawn, never repeated in briefs). Briefs are 6 lines. Reports are summaries. Bounces are deltas to a live agent, not respawns. Escalation is bounded: one bounce, then the supervisor takes over.
 - **Right-sized models.** Six lanes (haiku → opus-deep) routed by total expected cost _including review and rework_ — a likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default — localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat, since dispatch that buys no parallelism, specialization, or context isolation costs a whole session for nothing.
 - **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
+- **Short by rule.** Reports cap at 8 lines, plain English, no tables or file:line stacks.
 
 ## Install
 
@@ -63,7 +64,7 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
 | `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 
-Directives persist for the session until countermanded.
+Directives persist for the session until countermanded. Boss also remembers standing preferences using Claude Code's own memory, so a preference you state once, or correct twice, applies in future sessions without repeating it. User-level traits (not repo facts) are offered as a line for your global CLAUDE.md instead. Nothing extra to install.
 
 ## What's inside
 
