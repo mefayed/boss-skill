@@ -157,7 +157,7 @@ The plugin itself has **zero dependencies** — markdown plus a plain POSIX-sh h
 
 | Tool | Unlocks | Install |
 | ---- | ------- | ------- |
-| playwright-cli | screenshot verification of UI work | `npm install -g playwright && npx playwright install chromium` |
+| playwright-cli | driving UI work through the changed interaction | `npm install -g playwright && npx playwright install chromium` |
 | Codex CLI + plugin | the codex lane (outside implementer, advisor, debate advocate) | see "Optional: Codex as an extra lane" below |
 | GitHub CLI (`gh`) | PR/issue steps in briefs that need it | `brew install gh` (macOS) / [cli.github.com](https://cli.github.com) |
 
