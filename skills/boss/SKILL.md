@@ -3,6 +3,7 @@ name: boss
 description: Use when given any coding task — implementing, fixing, refactoring, upgrading, multi-step changes — or when the user types /boss, says "delegate this", or asks the team/crew to handle work. Also for design opinions, second opinions and debates asked in chat; not for general Q&A.
 argument-hint: [task]
 ---
+<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: MIT. See LICENSE. -->
 
 # Boss — multi-model orchestration
 

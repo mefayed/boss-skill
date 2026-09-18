@@ -163,4 +163,4 @@ The plugin itself has **zero dependencies** — markdown plus a plain POSIX-sh h
 
 ## License
 
-MIT
+Licensed under [MIT](LICENSE). Copyright (c) 2026 Mohamed Fayed. Free to use, modify, fork and sell; include the copyright and permission notices in all copies or substantial portions. Found a copy missing the required notices? Please open an issue.
