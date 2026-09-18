@@ -44,6 +44,7 @@ you → /boss fix the export filter and add date range to search
 
 ## Why
 
+- **Sharp asks, not rewritten ones.** Before routing, boss checks every request against a diagnostic checklist (after [prompt-master](https://github.com/nidhinjs/prompt-master)): the precise operation, the separable tasks, a pass/fail it can verify, and the boundaries. It stays within the normal recon budget, asks you nothing extra, and a fault it can't pin down quickly goes to the builder to trace. Your wording stays authoritative; a sharpening that would change what you meant shows up as a one-line judgment call, not a silent change.
 - **Token efficiency.** Standing rules live in agent definitions (sent once per spawn, never repeated in briefs). Briefs are 6 lines. Reports are summaries. Bounces are deltas to a live agent, not respawns. Escalation is bounded: one bounce, then the supervisor takes over.
 - **Right-sized models.** Six lanes (haiku → opus-deep) routed by total expected cost _including review and rework_ — a likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default — localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat, since dispatch that buys no parallelism, specialization, or context isolation costs a whole session for nothing.
 - **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
@@ -96,6 +97,7 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
 | `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 | `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
+| `write me a prompt for cursor` / `improve this prompt` | hands off to [prompt-master](https://github.com/nidhinjs/prompt-master) if installed (optional) |
 
 Directives persist for the session until countermanded. Boss also remembers standing preferences using Claude Code's own memory, so a preference you state once, or correct twice, applies in future sessions without repeating it. User-level traits (not repo facts) are also offered as a line for your global CLAUDE.md, so they travel across projects. Secrets are never stored. Nothing extra to install.
 
@@ -137,7 +139,7 @@ The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the
 
 ```mermaid
 flowchart LR
-    T([your task]) --> S{supervisor}
+    T([your task]) --> P[sharpen the ask] --> S{supervisor}
     S -- "small, local" --> I[do it inline]
     S -- "bigger" --> B["builder<br/>haiku · sonnet · opus"]
     S -. "hard to undo" .-> A[Fable advisor / debate]
@@ -147,7 +149,7 @@ flowchart LR
     V --> D([8-line report])
 ```
 
-1. Supervisor traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
+1. Supervisor sharpens the ask (precise operation, separable tasks, a pass/fail it can check, boundaries — within the recon budget), traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
 2. Each builder gets a self-contained brief: `GOAL / FILES / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
 3. Builders verify their own work and return a structured report. They never commit.
 4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, exercises the changed path itself (UI: drives it and checks a screenshot), surfaces judgment calls.
@@ -218,7 +220,12 @@ The plugin itself has **zero dependencies** — markdown plus a plain POSIX-sh h
 | playwright-cli | driving UI work through the changed interaction | `npm install -g playwright && npx playwright install chromium` |
 | Codex CLI + plugin | the codex lane (outside implementer, advisor, debate advocate) | see "Optional: Codex as an extra lane" below |
 | any model CLI (Gemini, Kimi, Qwen, Cursor, Ollama…) | the outside lane (advisor, debate seat) | the vendor's own install, then log in once |
+| [prompt-master](https://github.com/nidhinjs/prompt-master) | copy-paste prompts for other tools (Cursor, Midjourney, GPTs…) on explicit ask | `git clone https://github.com/nidhinjs/prompt-master.git ~/.claude/skills/prompt-master` |
 | GitHub CLI (`gh`) | PR/issue steps in briefs that need it | `brew install gh` (macOS) / [cli.github.com](https://cli.github.com) |
+
+## Acknowledgements
+
+The intake checklist is adapted from the diagnostic checklist in [prompt-master](https://github.com/nidhinjs/prompt-master) by nidhinjs (MIT). Ideas only; no prompt-master text is bundled.
 
 ## License
 
