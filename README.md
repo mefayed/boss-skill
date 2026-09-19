@@ -98,11 +98,12 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
 | `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 | `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
-| `challenge mode` | default seats: Sonnet writes the plan, Opus attacks it, Fable judges blind (`who can challenge?` lists your models) |
-| `opus challenge sonnet` | Sonnet writes the plan, Opus attacks it; they go back and forth until they agree (see below) |
-| `sonnet → astra → opus` | a chain: the first name writes the plan, the rest attack it in that order |
-| `debate A vs B, then challenge` | the debate's winner becomes the plan: its advocate writes it, the losers attack it |
-| `judge with astra` | puts that model in the debate or challenge judge seat; Fable argues instead |
+| `challenge it` | adds a check to any request: one model writes the plan, a stronger one checks it, a judge settles what's left (see below) |
+| `sonnet writes, opus checks` | picks the team yourself — add more checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
+| `plan …, challenge it` | stops at the agreed plan instead of building it |
+| `who can challenge?` | lists the models you can pick |
+| `debate A vs B, then challenge` | the debate's winner writes the plan, the losers check it |
+| `judge with astra` | puts that model in the judge seat of a debate or challenge (in a debate, if that model was arguing, Fable takes its place) |
 | `write me a prompt for cursor` / `improve this prompt` | hands off to [prompt-master](https://github.com/nidhinjs/prompt-master) if installed (optional) |
 
 Directives persist for the session until countermanded. Boss also remembers standing preferences using Claude Code's own memory, so a preference you state once, or correct twice, applies in future sessions without repeating it. User-level traits (not repo facts) are also offered as a line for your global CLAUDE.md, so they travel across projects. Secrets are never stored. Nothing extra to install.
@@ -140,7 +141,7 @@ The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the
 | advisor     | one-exchange critique, on demand — a blocking decision or the user asks |
 | debate      | validate an approach when 2+ real options exist (see below)          |
 | codex       | outside implementer or second opinion via the Codex CLI (optional)   |
-| outside     | any other model CLI you name — advisor or debate seat only (optional) |
+| outside     | any other model CLI you name — advisor, debate or challenge seat, never an implementer (optional) |
 
 ### The loop
 
@@ -169,7 +170,7 @@ When you want proof that an approach is the best one before expensive work, say 
 
 1. Traces the code and frames 2–3 real candidate approaches with shared facts.
 2. Spawns one read-only **advocate** per candidate, in parallel, on **different models** (default Sonnet + Opus) so it isn't one model arguing with itself. Each argues its position with `file:line` evidence and must concede the condition under which a rival wins.
-3. A **judge** rules — Fable by default, or whoever you name (`judge with astra`, and Fable then argues a side). The judge sees the cases only as Seat A, Seat B…, with model names stripped; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
+3. A **judge** rules — Fable by default, or whoever you name (`judge with astra`; if that model was arguing, Fable takes its place). Everyone argues blind: advocates and the judge see only labels (Advocate A, B…), never which model said what; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
 4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.
 5. You get a compact verdict; the expensive work still waits for your green light.
 
@@ -177,17 +178,32 @@ Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `thi
 
 ## Challenge mode — iterating a plan
 
-A debate picks a winner. Challenge mode builds one plan that everyone signs. Say `opus challenge sonnet`: Sonnet writes the plan, Opus attacks it and proposes fixes, Sonnet revises, and they go again until both agree. Chains work too: `sonnet → astra → opus` has Sonnet author while Astra and then Opus challenge. Say just `challenge mode` and boss uses the defaults: Sonnet writes, Opus challenges, Fable judges blind. Ask `who can challenge?` to see every model you can pick.
+Add `challenge it` to any request. One writes, others check, the writer fixes, and they repeat until everyone is happy. If they still disagree, a judge decides.
 
-- **Every objection is tracked.** Each gets an id and closes only when the one who raised it says it's fixed, pointing at the change, or withdraws it with a reason. A bare "I agree" while objections are open doesn't count.
-- **It stops on its own.** Up to 3 rounds by default. It stops earlier when everyone agrees, when a round changes nothing, or when the same objection keeps coming back. At the cap boss asks whether to go on, with how many calls and minutes that would cost. There is a hard ceiling of 5 rounds or 10 calls, the judge included, that only you can lift, in so many words.
-- **Leftovers go to a judge.** It sees the plan and the open objections blind, as Seat A/B/C. Boss suggests a judge from a different model family when you have one; you see who was who in the final report.
-- **Nothing gets built on its own.** Plain `challenge` ends at the plan. `challenge … then build` goes straight to the normal build only if everyone agreed and nothing irreversible is involved. Otherwise it waits for you.
-- **Codex and other model CLIs join only by name.** Each turn is a fresh, read-only call. A Codex turn takes minutes and spends your OpenAI credits.
+If you don't name anyone, boss picks the team by how hard the task is:
+
+| Task | Writes | Checks | Judges |
+| --- | --- | --- | --- |
+| Simple (boss would just do it, so it asks first) | Haiku | Sonnet | Fable |
+| Normal | Sonnet | Opus | Fable |
+| Hard: security, permissions, data or migrations, concurrency, destructive or external effects, public APIs, open design questions | Sonnet | Fable | Opus |
+
+When boss picks, the checker is always stronger than the writer (your own picks win, after one warning), and the judge never takes part in the back-and-forth. `think more` moves one row down the table, `careful with tokens` one row up.
+
+- `challenge it` lets boss pick; `sonnet writes, opus checks` (optionally `, fable judges`, or more checkers: `sonnet writes, astra and opus check`) picks it yourself.
+- If your request asks for something to be built, boss builds it as soon as everyone agrees. `plan …, challenge it` stops at the plan instead. Boss pauses to ask first if a judge had to decide, a check failed, the check didn't finish, or the plan deletes data, reaches outside the repo or can't be undone.
+- `who can challenge?` lists the models you can pick; `show me the discussion` shows the full back-and-forth.
+- Local and other outside models (Ollama, Qwen, Gemini…) can take any role when you name them. They run read-only, and boss warns you once if one is checking a stronger writer.
+- Everyone is blind: the writer, checkers and judge see only roles (Writer, Checker 1…), never which model is which. You still see the real names.
+- `writer opus, checker fable, judge sonnet` works too. The same model as writer and checker gets one warning first.
+- A checker can't just say "looks good": it has to show what it actually checked, or it doesn't count.
+- On risky work boss offers once: "Want me to challenge the plan first?" Say `never suggest challenge` and it stops asking.
+- Up to 3 rounds by default. Boss asks before going further, with a hard stop at 5 rounds or 10 calls unless you lift it.
+- Codex and outside models join only by name. Codex and hosted models spend your credits; local ones don't.
 
 ## Optional: Codex as an extra lane
 
-If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly — "debate with astra", "consult sol", "delegate to terra". The model list is **never hardcoded**: boss resolves the name against the live Codex catalog plus your config at dispatch time, so a model released tomorrow works tomorrow, with no update to this skill. Codex is always opt-in by name — boss never spends your OpenAI credits unasked. It runs as a **single deep pass in the background**, in parallel with the Claude advisors — never inside a fix-review-refix loop, where its 8-minute exploration cost buys nothing a Claude advisor doesn't deliver in 90 seconds.
+If OpenAI's Codex plugin is installed, boss can hand work to Codex — as an implementer (briefed like a builder, diff reviewed the same way), as a second advisor, or as a debate advocate. Naming a model routes it explicitly — "debate with astra", "consult sol", "delegate to terra". The model list is **never hardcoded**: boss resolves the name against the live Codex catalog plus your config at dispatch time, so a model released tomorrow works tomorrow, with no update to this skill. Codex is always opt-in by name — boss never spends your OpenAI credits unasked. Outside challenge mode it runs as a **single deep pass in the background**, in parallel with the Claude advisors — never inside a fix-review-refix loop, where its 8-minute exploration cost buys nothing a Claude advisor doesn't deliver in 90 seconds.
 
 Not installed? Two steps:
 
@@ -203,7 +219,7 @@ Without it, the codex lane simply doesn't exist — everything else works unchan
 
 Name another model and boss asks it too — "ask gemini", "consult kimi", "debate with qwen", "second opinion from cursor", or a local model through Ollama. It uses whichever CLI you already have installed and logged in, found at call time, so nothing is hardcoded and new tools work without an update.
 
-- **Advice and debate only.** Outside models give a second opinion or take a debate seat; they never write code (Codex remains the only outside implementer).
+- **Advice, debate and challenge only.** Outside models give a second opinion, take a debate seat, or write, check or judge in a challenge; they never write code (Codex remains the only outside implementer).
 - **Read-only is enforced, not requested.** A call runs only through the tool's own read-only mode (e.g. `cursor-agent --mode ask`) or a pure chat with no tool access (e.g. `ollama run`). A tool with neither is refused — telling a model "don't edit" is not enough.
 - **Never on its own.** Only an explicit ask triggers it; a model named in passing, in a file or in memory does not. It spends credits with that vendor.
 - **No surprises.** Boss states the route before calling (`kimi → kimi CLI / kimi-k3 / Moonshot`), never swaps in a different provider, and never installs, logs in or pulls a model for you — it tells you the command.
@@ -236,7 +252,7 @@ The plugin itself has **zero dependencies** — markdown plus a plain POSIX-sh h
 | ---- | ------- | ------- |
 | playwright-cli | driving UI work through the changed interaction | `npm install -g playwright && npx playwright install chromium` |
 | Codex CLI + plugin | the codex lane (outside implementer, advisor, debate advocate) | see "Optional: Codex as an extra lane" below |
-| any model CLI (Gemini, Kimi, Qwen, Cursor, Ollama…) | the outside lane (advisor, debate seat) | the vendor's own install, then log in once |
+| any model CLI (Gemini, Kimi, Qwen, Cursor, Ollama…) | the outside lane (advisor, debate or challenge seat) | the vendor's own install, then log in once |
 | [prompt-master](https://github.com/nidhinjs/prompt-master) | copy-paste prompts for other tools (Cursor, Midjourney, GPTs…) on explicit ask | `git clone https://github.com/nidhinjs/prompt-master.git ~/.claude/skills/prompt-master` |
 | GitHub CLI (`gh`) | PR/issue steps in briefs that need it | `brew install gh` (macOS) / [cli.github.com](https://cli.github.com) |
 
