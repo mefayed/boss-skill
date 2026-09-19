@@ -29,6 +29,7 @@
   <a href="#use">Use</a> ·
   <a href="#the-lanes">Lanes</a> ·
   <a href="#debate--validating-an-approach">Debate</a> ·
+  <a href="#challenge-mode--iterating-a-plan">Challenge</a> ·
   <a href="#optional-other-model-clis">Other models</a>
 </p>
 
@@ -69,7 +70,7 @@ npx skills add mefayed/boss-skill && cp agents/*.md ~/.claude/agents/
 
 # fully manual
 mkdir -p ~/.claude/skills/boss ~/.claude/agents
-cp skills/boss/SKILL.md skills/boss/outside-clis.md ~/.claude/skills/boss/
+cp skills/boss/SKILL.md skills/boss/outside-clis.md skills/boss/challenge.md ~/.claude/skills/boss/
 cp agents/*.md ~/.claude/agents/
 ```
 
@@ -97,6 +98,11 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
 | `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 | `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
+| `challenge mode` | lists the models you can use, then waits for your pick |
+| `opus challenge sonnet` | Sonnet writes the plan, Opus attacks it; they go back and forth until they agree (see below) |
+| `sonnet → astra → opus` | a chain: the first name writes the plan, the rest attack it in that order |
+| `debate A vs B, then challenge` | the debate's winner becomes the plan: its advocate writes it, the losers attack it |
+| `judge with astra` | puts that model in the debate or challenge judge seat; Fable argues instead |
 | `write me a prompt for cursor` / `improve this prompt` | hands off to [prompt-master](https://github.com/nidhinjs/prompt-master) if installed (optional) |
 
 Directives persist for the session until countermanded. Boss also remembers standing preferences using Claude Code's own memory, so a preference you state once, or correct twice, applies in future sessions without repeating it. User-level traits (not repo facts) are also offered as a line for your global CLAUDE.md, so they travel across projects. Secrets are never stored. Nothing extra to install.
@@ -106,6 +112,7 @@ Directives persist for the session until countermanded. Boss also remembers stan
 ```
 skills/boss/SKILL.md      the orchestration protocol (triage, briefs, review, escalation)
 skills/boss/outside-clis.md  outside-model procedure, read only when you name one
+skills/boss/challenge.md     challenge-mode procedure, read only when you ask for one
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
@@ -162,11 +169,21 @@ When you want proof that an approach is the best one before expensive work, say 
 
 1. Traces the code and frames 2–3 real candidate approaches with shared facts.
 2. Spawns one read-only **advocate** per candidate, in parallel, on **different models** (default Sonnet + Opus) so it isn't one model arguing with itself. Each argues its position with `file:line` evidence and must concede the condition under which a rival wins.
-3. A **Fable judge** rules: `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
+3. A **judge** rules — Fable by default, or whoever you name (`judge with astra`, and Fable then argues a side). The judge sees the cases only as Seat A, Seat B…, with model names stripped; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
 4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.
 5. You get a compact verdict; the expensive work still waits for your green light.
 
 Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `think more` → Opus advocates, Fable judges. **Codex joins only when you name it** ("debate with astra" / "debate it, include codex") — never automatically, since it spends your OpenAI credits.
+
+## Challenge mode — iterating a plan
+
+A debate picks a winner. Challenge mode builds one plan that everyone signs. Say `opus challenge sonnet`: Sonnet writes the plan, Opus attacks it and proposes fixes, Sonnet revises, and they go again until both agree. Chains work too: `sonnet → astra → opus` has Sonnet author while Astra and then Opus challenge. Say just `challenge mode` and boss lists the models you can use and waits for you to pick.
+
+- **Every objection is tracked.** Each gets an id and closes only when the one who raised it says it's fixed, pointing at the change, or withdraws it with a reason. A bare "I agree" while objections are open doesn't count.
+- **It stops on its own.** Up to 3 rounds by default. It stops earlier when everyone agrees, when a round changes nothing, or when the same objection keeps coming back. At the cap boss asks whether to go on, with how many calls and minutes that would cost. There is a hard ceiling of 5 rounds or 10 calls, the judge included, that only you can lift, in so many words.
+- **Leftovers go to a judge.** It sees the plan and the open objections blind, as Seat A/B/C. Boss suggests a judge from a different model family when you have one; you see who was who in the final report.
+- **Nothing gets built on its own.** Plain `challenge` ends at the plan. `challenge … then build` goes straight to the normal build only if everyone agreed and nothing irreversible is involved. Otherwise it waits for you.
+- **Codex and other model CLIs join only by name.** Each turn is a fresh, read-only call. A Codex turn takes minutes and spends your OpenAI credits.
 
 ## Optional: Codex as an extra lane
 

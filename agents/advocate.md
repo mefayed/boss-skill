@@ -23,3 +23,5 @@ CONCESSION: the one condition under which a rival would beat you
 ```
 
 If later sent the rivals' cases for a rebuttal round: reply once more, under ~10 lines, only countering their attacks — no restating your case.
+
+In a challenge-mode run the brief's role and reply shape take precedence over the rules above: you may revise or concede your plan, and you reply once per turn, not once per run.
