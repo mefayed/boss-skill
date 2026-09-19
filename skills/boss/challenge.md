@@ -8,7 +8,8 @@ Read only after SKILL.md's gate passed: the user explicitly asked for challenge 
 
 - Binary: "X challenge Y" → Y authors, X challenges (the one challenged writes the plan). Chain: "A→B→C" / "A, then B, then C" → A authors, then B and C challenge in that order. Mixed or unclear syntax → ask who authors. One lap (author turn plus each live challenger once) is one round.
 - "Debate … then challenge": run the debate first; the winning advocate's model authors the winning option, the other advocates challenge it, and the debate judge judges again (seats settled from the debate, so no menu).
-- No names: show the menu, call nobody, wait for a pick.
+- No names → the default: sonnet authors, opus challenges, fable judges. The setup line shows it and the run starts; the user can stop it to redirect.
+- Menu only when asked ("who can challenge?", "list models"): show it, call nobody, wait for a pick.
   `Pick an author and challenger(s), e.g. "opus challenge sonnet". Claude: fable, opus, sonnet, haiku. Codex (your catalog; access not verified; spends OpenAI credits): <slugs>. Or name an outside CLI.`
   Slugs: `{ codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4; grep -ho 'gpt[a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null; } | sort -u`. This is a local read that calls no model. Drop the Codex clause if the command prints nothing or the companion isn't installed. Never list or probe outside CLIs here.
 - Routing per seat, as in SKILL.md:
@@ -16,7 +17,7 @@ Read only after SKILL.md's gate passed: the user explicitly asked for challenge 
   - a Codex name resolves against the catalog;
   - any other name goes through outside-clis.md (resolve, route line, enforced read-only).
   Naming a seat or judge is the opt-in; memory never is. "claude only" drops every non-Claude seat and judge, and says so in one line.
-- No author named → ask. The judge is never a seat.
+- Challenger named but no author → sonnet authors (opus if sonnet is the challenger). The judge is never a seat.
 - Author, challengers and judge are settled before turn 1 (see Judge), then frozen for the run: no seat or judge is added or swapped mid-run.
 - Setup line before round 1: `Author <m>, challengers <m…>, judge <m> (<family note>) [— suggest judge with <out-of-family>?], cap <n> rounds, ceiling 5 rounds / 10 turns (1 reserved for the judge), ~<min> per round.`
 
@@ -97,8 +98,8 @@ RESIDUAL RISK: <biggest remaining risk>   (required with AGREE)
 
 - Choice, announced in the setup line:
   - "judge with X" → X judges, and fable joins as the last challenger unless it's already seated or X is fable. X also named as a seat → ask.
-  - No judge named, and no "claude only" → first suggest, in the setup line, one judge from a family not in the fight: a Codex catalog slug if no Codex seat is in the fight, or an outside CLI the user already named this run (never discovered). The suggestion is a question, not a dispatch; answering "judge with <x>" is the opt-in. Wait for the answer before turn 1; the fallback below applies only when the user declines or explicitly accepts it.
-  - No out-of-family option, or the user declined it or accepted the fallback → the first unseated model of fable, opus, sonnet, haiku judges, run as the `fable-advisor` agent with that model, and the same family is disclosed.
+  - No judge named, and no "claude only" → first suggest, in the setup line, one judge from a family not in the fight: a Codex catalog slug if no Codex seat is in the fight, or an outside CLI the user already named this run (never discovered). The suggestion is a question, not a dispatch; answering "judge with <x>" is the opt-in. It doesn't block: with no answer the default judge runs, and seats freeze at turn 1, so switching means restarting with "judge with <x>".
+  - Otherwise → the first unseated model of fable, opus, sonnet, haiku judges, run as the `fable-advisor` agent with that model, and the same family is disclosed.
   - All four Claude models seated and no out-of-family judge accepted → ask.
   - A same-family judge is disclosed in the setup line and the report. A Codex judge is one fresh read-only call; an outside judge is one outside-clis.md run.
 - Blind: the judge sees seats only as Seat A (the author), Seat B, Seat C… in chain order.

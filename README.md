@@ -98,7 +98,7 @@ It also auto-triggers on plain coding tasks without the slash command.
 | `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
 | `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 | `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
-| `challenge mode` | lists the models you can use, then waits for your pick |
+| `challenge mode` | default seats: Sonnet writes the plan, Opus attacks it, Fable judges blind (`who can challenge?` lists your models) |
 | `opus challenge sonnet` | Sonnet writes the plan, Opus attacks it; they go back and forth until they agree (see below) |
 | `sonnet → astra → opus` | a chain: the first name writes the plan, the rest attack it in that order |
 | `debate A vs B, then challenge` | the debate's winner becomes the plan: its advocate writes it, the losers attack it |
@@ -177,7 +177,7 @@ Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `thi
 
 ## Challenge mode — iterating a plan
 
-A debate picks a winner. Challenge mode builds one plan that everyone signs. Say `opus challenge sonnet`: Sonnet writes the plan, Opus attacks it and proposes fixes, Sonnet revises, and they go again until both agree. Chains work too: `sonnet → astra → opus` has Sonnet author while Astra and then Opus challenge. Say just `challenge mode` and boss lists the models you can use and waits for you to pick.
+A debate picks a winner. Challenge mode builds one plan that everyone signs. Say `opus challenge sonnet`: Sonnet writes the plan, Opus attacks it and proposes fixes, Sonnet revises, and they go again until both agree. Chains work too: `sonnet → astra → opus` has Sonnet author while Astra and then Opus challenge. Say just `challenge mode` and boss uses the defaults: Sonnet writes, Opus challenges, Fable judges blind. Ask `who can challenge?` to see every model you can pick.
 
 - **Every objection is tracked.** Each gets an id and closes only when the one who raised it says it's fixed, pointing at the change, or withdraws it with a reason. A bare "I agree" while objections are open doesn't count.
 - **It stops on its own.** Up to 3 rounds by default. It stops earlier when everyone agrees, when a round changes nothing, or when the same objection keeps coming back. At the cap boss asks whether to go on, with how many calls and minutes that would cost. There is a hard ceiling of 5 rounds or 10 calls, the judge included, that only you can lift, in so many words.
