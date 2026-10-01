@@ -30,10 +30,19 @@ Route by total expected cost **including review and rework**: a likely one-shot 
 Codex routing: "codex", or any word the user uses as a model name (astra, sol — also the common typo "soul" — terra, luna, whatever ships next), routes through the `codex:rescue` skill (if installed). **Never hardcode the model list** — resolve the name against the live catalog at dispatch time:
 
 ```bash
-{ codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4; grep -ho 'gpt-[0-9][a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null; } | sort -u | grep -i <name>
+s=$(codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4); [ -n "$s" ] || s=$(grep -ho 'gpt-[0-9][a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null); printf '%s\n' "$s" | sort -uV | grep -i -- <name>
 ```
 
-Name only ("sol") → the newest match by version number (`gpt-6.1-sol` over `gpt-6-sol`), and the report names the slug used. Name plus version ("sol 6") → that exact slug. Ask only when no single newest exists: a tie at the top version, or a name broad enough to span families ("gpt"). Family found but the named version missing ("sol 7") → say it isn't in the local catalog and offer `npm i -g @openai/codex@latest`, since the catalog ships with the CLI; never fall back to an older version silently. No match at all → the word wasn't a model; read it as ordinary prose. No name given → leave the model unset (Codex uses its own default).
+The catalog is the source of truth; config slugs are only a fallback for a CLI too old to print one, so a slug seen in config but not the catalog counts as missing and is never dispatched. Normalize the typo first ("soul" → "sol"): grep sees only the literal word. The output is version-sorted, so the newest is the last line.
+- Name only ("sol") → the newest match (`gpt-6.1-sol` over `gpt-6-sol`); the report names the slug used.
+- Name plus version ("sol 6") → that exact slug.
+- Version without a name ("use 6.1") → the slugs at that version: one → use it; several ("6" → astra, luna, sol) → ask.
+- Ask also when no single newest exists: a tie at the top version, or a name that spans families ("gpt").
+- Named version missing: newer than anything in the catalog ("sol 7") → say so and offer `npm i -g @openai/codex@latest`, since the catalog ships with the CLI; older and gone ("sol 5") → say so and ask. Never fall back to another version silently.
+- "spark" is the companion's own alias for `gpt-5.3-codex-spark`, outside the catalog: pass `--model spark` and let the companion resolve it.
+- No match at all → the word wasn't a model; read it as ordinary prose. No name given → leave the model unset (Codex uses its own default).
+
+Claude names follow the same rule through the `model` aliases, which always run the newest of their family and cannot pin a version. A version named with them ("sonnet 5.5") → say the lane runs the current <family> and go ahead; if the user clearly wants an older one ("sonnet 4.5, not the new one"), say it can't be pinned and ask.
 
 Codex can take three roles: implementer (brief it like a builder, review its diff the same way), a second advisor alongside `fable-advisor`, or a debate advocate. Advisor and debate runs are read-only; only an implementer run may write — the companion sets the sandbox from each invocation's `--write`, so pass it on every implementer dispatch and omit it everywhere else. Codex spends the user's OpenAI credits — it is **opt-in only, never dispatched unnamed**.
 
