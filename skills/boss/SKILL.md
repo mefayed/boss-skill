@@ -30,10 +30,10 @@ Route by total expected cost **including review and rework**: a likely one-shot 
 Codex routing: "codex", or any word the user uses as a model name (astra, sol — also the common typo "soul" — terra, luna, whatever ships next), routes through the `codex:rescue` skill (if installed). **Never hardcode the model list** — resolve the name against the live catalog at dispatch time:
 
 ```bash
-{ codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4; grep -ho 'gpt[a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json; } | sort -u | grep -i <name>
+{ codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4; grep -ho 'gpt-[0-9][a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null; } | sort -u | grep -i <name>
 ```
 
-One match → pass `--model <slug>`. Several → ask which. None → the word wasn't a model; read it as ordinary prose. No name given → leave the model unset (Codex uses its own default).
+Name only ("sol") → the newest match by version number (`gpt-6.1-sol` over `gpt-6-sol`), and the report names the slug used. Name plus version ("sol 6") → that exact slug. Ask only when no single newest exists: a tie at the top version, or a name broad enough to span families ("gpt"). Family found but the named version missing ("sol 7") → say it isn't in the local catalog and offer `npm i -g @openai/codex@latest`, since the catalog ships with the CLI; never fall back to an older version silently. No match at all → the word wasn't a model; read it as ordinary prose. No name given → leave the model unset (Codex uses its own default).
 
 Codex can take three roles: implementer (brief it like a builder, review its diff the same way), a second advisor alongside `fable-advisor`, or a debate advocate. Advisor and debate runs are read-only; only an implementer run may write — the companion sets the sandbox from each invocation's `--write`, so pass it on every implementer dispatch and omit it everywhere else. Codex spends the user's OpenAI credits — it is **opt-in only, never dispatched unnamed**.
 

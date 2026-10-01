@@ -18,7 +18,7 @@ Read only after SKILL.md's gate passed. Debates never need this file.
 - Codex and outside models are never auto-picked. Naming a seat or judge is the opt-in; memory never is. "claude only" drops every non-Claude seat and judge, and says so in one line. Naming a judge never moves fable into a checker seat.
 - Menu only when asked ("who can challenge?", "list models"): show it, call nobody, wait for a pick.
   `Pick who writes and who checks, e.g. "sonnet writes, opus checks". Claude: fable, opus, sonnet, haiku. Codex (your catalog; access not verified; spends OpenAI credits): <slugs>. Or name an outside CLI.`
-  Slugs: `{ codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4; grep -ho 'gpt[a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null; } | sort -u`. It calls no model; no output or no companion → drop the Codex clause. Never probe outside CLIs here.
+  Slugs: `{ codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4; grep -ho 'gpt-[0-9][a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null; } | sort -u`. It calls no model; no output or no companion → drop the Codex clause. Never probe outside CLIs here.
 - Routing per seat, as in SKILL.md: a Claude name runs as the `advocate` agent with that model; a Codex name resolves against the catalog; any other name goes through outside-clis.md (resolve, route line, enforced read-only, a fresh call per turn) and may hold any role. A named outside or local model checking a stronger writer → warn once: `<x> is likely weaker than <writer> — checks may be shallow. Continue?`
 - Seats and judge are settled before turn 1, then frozen: nothing is added or swapped mid-run.
 
