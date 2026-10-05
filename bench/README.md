@@ -143,6 +143,11 @@ Other runs, kept for the record:
 - `20261005T163045Z.jsonl`: an interrupted run (one boss result for task 01, $0.16, passed).
 - `20261005T161818Z.jsonl`: a test of the runner itself with Haiku as the main model, not a benchmark result. There, boss sent the bug to a Haiku builder, which misread it and failed the hidden test; baseline Haiku passed.
 
+Quality fix, measured on task 03 (bug report that blames the wrong component):
+
+- Before (`20261005T161818Z`, `20261005T171330Z`): boss with Haiku as the main model failed twice. It accepted the user's theory, changed the stock display, and checked only its own change.
+- After adding "reproduce the user's symptom first" and "bound by the state, not the story" to the skill and builders (`20261005T171558Z`, `20261005T171620Z`): boss with Sonnet as the main model reproduced the OutOfStock error, fixed the real cause (cancel never released stock) and added a regression test, $0.13, passed. Boss with Haiku as the main model also passed, $0.10.
+
 Next step for a fair test of the savings claim: a larger fixture with tasks big enough that boss dispatches, and 3+ runs per cell.
 
 ## Re-checking the tests

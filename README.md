@@ -322,6 +322,7 @@ Omitting `tools:` inherits everything, but MCP schemas are **deferred**: names o
 
 - Claude Code with subagent support (`.claude/agents` definitions, per-dispatch model overrides).
 - Access to the models you want in the lanes; edit the `model:` frontmatter in `agents/*.md` to match your plan.
+- A Sonnet or Opus main session. Boss's supervisor is your main model; in our tests Haiku as supervisor skipped boss's own rules (it accepted a user's wrong guess about a bug and committed unasked).
 
 The plugin itself has **zero dependencies**: markdown plus a plain POSIX-sh hook. Everything else is optional. When a tool is missing, boss degrades to the nearest available check, says so in its report, and suggests the install line.
 
