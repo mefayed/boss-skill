@@ -166,7 +166,7 @@ flowchart LR
 <summary>The loop, step by step</summary>
 
 1. Supervisor sharpens the ask (precise operation, separable tasks, a pass/fail it can check, boundaries — within the recon budget), traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
-2. Each builder gets a self-contained brief: `GOAL / FILES / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
+2. Each builder gets a self-contained brief: `GOAL / FILES / CONTRACT / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — the checks that prove the job is done (written from your ask and seen failing before any edit), exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
 3. Builders verify their own work and return a structured report. They never commit.
 4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, exercises the changed path itself (UI: drives it and checks a screenshot), surfaces judgment calls.
 5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → supervisor takes over. No loops.
