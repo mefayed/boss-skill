@@ -1,0 +1,8 @@
+[
+  {"id": "o1", "customer": "ada", "created_at": "2026-02-11", "status": "paid", "total_cents": 3399,
+   "items": [{"sku": "MUG-01", "quantity": 2, "unit_price_cents": 1250}, {"sku": "TEA-02", "quantity": 1, "unit_price_cents": 899}]},
+  {"id": "o2", "customer": "lin", "created_at": "2026-03-02", "status": "paid", "total_cents": 9709,
+   "items": [{"sku": "TEA-02", "quantity": 12, "unit_price_cents": 899}]},
+  {"id": "o3", "customer": "sam", "created_at": "2026-03-05", "status": "cancelled", "total_cents": 0,
+   "items": [{"sku": "PEN-03", "quantity": 1, "unit_price_cents": 2400}]}
+]

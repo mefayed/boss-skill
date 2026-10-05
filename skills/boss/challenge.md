@@ -18,8 +18,8 @@ Read only after SKILL.md's gate passed. Debates never need this file.
 - Codex and outside models are never auto-picked. Naming a seat or judge is the opt-in; memory never is. "claude only" drops every non-Claude seat and judge, and says so in one line. Naming a judge never moves fable into a checker seat.
 - Menu only when asked ("who can challenge?", "list models"): show it, call nobody, wait for a pick.
   `Pick who writes and who checks, e.g. "sonnet writes, opus checks". Claude: fable, opus, sonnet, haiku. Codex (your catalog; access not verified; spends OpenAI credits): <slugs>. Or name an outside CLI.`
-  Slugs: SKILL.md's catalog command without the final `grep`. It calls no model; no output or no companion → drop the Codex clause. Never probe outside CLIs here.
-- Routing per seat, as in SKILL.md: a Claude name runs as the `advocate` agent with that model; a Codex name resolves against the catalog; any other name goes through outside-clis.md (resolve, route line, enforced read-only, a fresh call per turn) and may hold any role. A named outside or local model checking a stronger writer → warn once: `<x> is likely weaker than <writer> — checks may be shallow. Continue?`
+  Slugs: codex.md's catalog command without the final `grep` (read codex.md for it). It calls no model; no output or no companion → drop the Codex clause. Never probe outside CLIs here.
+- Routing per seat, as in SKILL.md and codex.md: a Claude name runs as the `advocate` agent with that model; a Codex name resolves against the catalog; any other name goes through outside-clis.md (resolve, route line, enforced read-only, a fresh call per turn) and may hold any role. A named outside or local model checking a stronger writer → warn once: `<x> is likely weaker than <writer> — checks may be shallow. Continue?`
 - Seats and judge are settled before turn 1, then frozen: nothing is added or swapped mid-run.
 
 ## Plan files
@@ -31,7 +31,7 @@ Read only after SKILL.md's gate passed. Debates never need this file.
 ## Calls
 
 - Claude seat: the first turn is a fresh `advocate` dispatch; later turns SendMessage the same agent the same closed brief.
-- Codex seat: a fresh call every turn: `node <companion> task --background --fresh --model <slug> --effort medium --prompt-file <brief>`. Never `--write`. Never `--resume` / `--resume-last`: either picks the newest thread in the session, not this seat's. Harvest as SKILL.md says. Only in this mode may Codex take more than one call per review cycle.
+- Codex seat: a fresh call every turn: `node <companion> task --background --fresh --model <slug> --effort medium --prompt-file <brief>`. Never `--write`. Never `--resume` / `--resume-last`: either picks the newest thread in the session, not this seat's. Harvest as codex.md says. Only in this mode may Codex take more than one call per review cycle.
 - Outside seat: one outside-clis.md run per turn under its challenge bullet.
 - Malformed but successful reply: one re-ask with the shape; it counts as a turn; still malformed → failed.
 - Failed, empty or timed-out turn: never agreement, never retried. The seat sits out the rest of the run, its open ids stay open, and its endorsement is missing, so the run cannot end in full agreement. Writer failure ends the run: report the last version and what's still open.
@@ -82,9 +82,9 @@ RESIDUAL RISK: <biggest remaining risk>   (required with AGREE)
 
 ## Judge
 
-- Named judge ("judge with X" / "X judges") → X; X also named as a seat → ask. No judge named and no "claude only" → the setup line may suggest one out-of-family judge that is actually available (the newest Codex catalog slug, per SKILL.md's rule, if no Codex seat is in the fight, or an outside CLI the user already named this run, never discovered); it's a question, not a dispatch, and with no answer the auto judge runs. Auto judge unavailable → the first unseated of fable, opus, sonnet, haiku, run as `fable-advisor`; all four seated → ask. Disclose a same-family judge in the setup line and the report.
+- Named judge ("judge with X" / "X judges") → X; X also named as a seat → ask. No judge named and no "claude only" → the setup line may suggest one out-of-family judge that is actually available (the newest Codex catalog slug, per codex.md's rule, if no Codex seat is in the fight, or an outside CLI the user already named this run, never discovered); it's a question, not a dispatch, and with no answer the auto judge runs. Auto judge unavailable → the first unseated of fable, opus, sonnet, haiku, run as `fable-advisor`; all four seated → ask. Disclose a same-family judge in the setup line and the report.
 - Blind: the judge sees the same labels every seat sees (Writer, Checker 1/2…). Boss writes the whole judge brief inline: final version, open points with both sides' last words, change log. It contains no file or scratchpad paths. Add "judge only from this brief; do not open files outside the repo." The label→model map appears only in the final report. The judge is never a seat.
-- Reply shape: `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT`, each open id ruled UPHELD (plan must change: how) or OVERRULED in WHY; INSUFFICIENT EVIDENCE / REFRAME work as in a debate. A re-judge happens at most once, and only if a call is free; otherwise stop with the ceiling message. Judge calls count toward the 10.
+- Reply shape: `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT`, each open id ruled UPHELD (plan must change: how) or OVERRULED in WHY; INSUFFICIENT EVIDENCE / REFRAME work as in a debate (debate.md). A re-judge happens at most once, and only if a call is free; otherwise stop with the ceiling message. Judge calls count toward the 10.
 - Rulings are never applied silently: the report shows them, and the writer applies upheld ones only after the user's OK; that one writer call is outside the 10, the OK being the explicit lift.
 
 ## Build

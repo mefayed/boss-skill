@@ -1,0 +1,3 @@
+# raw per-run transcripts, diffs and test output
+results/raw/
+__pycache__/

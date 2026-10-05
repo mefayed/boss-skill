@@ -1,0 +1,1 @@
+Something's off with stock. After the shop has been running a while, customers start getting OutOfStock when they add items to an order, even though `shop stock` says we have plenty of those products. I think the stock command is showing stale numbers. Can you fix it?

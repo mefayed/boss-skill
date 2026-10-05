@@ -1,0 +1,1 @@
+Products need an optional barcode. Add a `barcode` field to `Product` that works the same way `category` does: optional, saved to and loaded from the catalog file (older catalog files without it must still load), and add it as the last column of the sales report CSV, left blank when a product has none.

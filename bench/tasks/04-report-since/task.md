@@ -1,0 +1,1 @@
+Add a `--since YYYY-MM-DD` option to `shop report` so I can see sales from a given date onward (that day included). It should work with `--csv` too. A malformed date should give a normal CLI error, not a traceback.

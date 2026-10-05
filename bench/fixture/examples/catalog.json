@@ -1,0 +1,5 @@
+[
+  {"sku": "MUG-01", "name": "Enamel mug", "price_cents": 1250, "category": "kitchen"},
+  {"sku": "TEA-02", "name": "Loose leaf tea 100g", "price_cents": 899, "category": "pantry"},
+  {"sku": "PEN-03", "name": "Brass pen", "price_cents": 2400, "category": null}
+]

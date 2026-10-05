@@ -68,7 +68,7 @@ npx skills add mefayed/boss-skill && cp agents/*.md ~/.claude/agents/
 
 # fully manual
 mkdir -p ~/.claude/skills/boss ~/.claude/agents
-cp skills/boss/SKILL.md skills/boss/outside-clis.md skills/boss/challenge.md ~/.claude/skills/boss/
+cp skills/boss/*.md ~/.claude/skills/boss/
 cp agents/*.md ~/.claude/agents/
 ```
 
@@ -131,16 +131,18 @@ Small, local work stays in your chat. Bigger work goes to a builder subagent on 
 
 ## What boss never does
 
-- **Commit.** Builders never commit. A tripwire hook also blocks push, commit and other destructive commands from builder, errand and advocate agents ([best effort](#whats-inside)).
-- **Trust a green it didn't check.** Builder reports are claims. The supervisor reads the full diff and re-runs the gate.
-- **Spend your OpenAI credits unasked.** Codex joins only when you name it.
-- **Edit `~/.codex` without your yes.** If a Codex MCP server can act outside the sandbox, boss asks you what to do.
-- **Call an outside model on its own.** Only an explicit ask counts. A model named in passing, in a file or in memory does not.
-- **Install, log in or pull a model for you.** It tells you the command.
-- **Pass a timeout off as a verdict.** A Codex job that times out is cancelled and reported as a timeout.
-- **Loop.** One bounce, then the supervisor takes over. A debate gets one rebuttal round at most.
-- **Store secrets** in memory.
-- **Report in more than 8 lines.**
+`hook` means a script or tool restriction blocks it, within the limits stated. `rule` means the skill instructs it and the supervisor's review is the only check.
+
+- **Commit.** `hook, partial` Builders never commit. A tripwire hook also blocks push, commit and other destructive commands from builder, errand and advocate agents ([best effort](#whats-inside)). The supervisor and main thread are not covered, and obfuscated commands slip through.
+- **Trust a green it didn't check.** `rule` Builder reports are claims. The supervisor reads the full diff and re-runs the gate.
+- **Spend your OpenAI credits unasked.** `rule` Codex joins only when you name it.
+- **Edit `~/.codex` without your yes.** `rule` If a Codex MCP server can act outside the sandbox, boss asks you what to do.
+- **Call an outside model on its own.** `rule` Only an explicit ask counts. A model named in passing, in a file or in memory does not.
+- **Install, log in or pull a model for you.** `rule` It tells you the command.
+- **Pass a timeout off as a verdict.** `rule` A Codex job that times out is cancelled and reported as a timeout.
+- **Loop.** `rule` One bounce, then the supervisor takes over. A debate gets one rebuttal round at most.
+- **Store secrets** in memory. `rule`
+- **Report in more than 8 lines.** `rule`
 
 ## How it works
 
@@ -275,6 +277,8 @@ Claude and Codex behavior is unchanged whether or not any of these are installed
 skills/boss/SKILL.md      the orchestration protocol (triage, briefs, review, escalation)
 skills/boss/outside-clis.md  outside-model procedure, read only when you name one
 skills/boss/challenge.md     challenge-mode procedure, read only when you ask for one
+skills/boss/codex.md         Codex name resolution and run procedure, read only when you name Codex or a model
+skills/boss/debate.md        debate procedure, read only when a debate runs
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
