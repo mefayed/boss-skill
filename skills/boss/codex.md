@@ -9,10 +9,10 @@ Read when SKILL.md's Codex trigger fires, or when challenge.md or debate.md poin
 "codex", or any word the user uses as a model name (astra, sol — also the common typo "soul" — terra, luna, whatever ships next), routes through the `codex:rescue` skill (if installed). **Never hardcode the model list** — resolve the name against the live catalog at dispatch time:
 
 ```bash
-s=$(codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4); [ -n "$s" ] || s=$(grep -ho 'gpt-[0-9][a-z0-9.-]*' ~/.codex/config.toml ~/.codex/.codex-global-state.json 2>/dev/null); printf '%s\n' "$s" | sort -uV | grep -i -- <name>
+codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4 | sort -uV | grep -i -- <name>
 ```
 
-The catalog is the source of truth; config slugs are only a fallback for a CLI too old to print one, so a slug seen in config but not the catalog counts as missing and is never dispatched. Normalize the typo first ("soul" → "sol"): grep sees only the literal word. The output is version-sorted, so the newest is the last line.
+The catalog is the only source of truth. Empty output from `codex debug models` means a CLI too old to print one → say so and offer `npm i -g @openai/codex@latest`; never read Codex's own files under `~/.codex` instead. Normalize the typo first ("soul" → "sol"): grep sees only the literal word. The output is version-sorted, so the newest is the last line.
 - Name only ("sol") → the newest match (`gpt-6.1-sol` over `gpt-6-sol`); the report names the slug used.
 - Name plus version ("sol 6") → that exact slug.
 - Version without a name ("use 6.1") → the slugs at that version: one → use it; several ("6" → astra, luna, sol) → ask.
