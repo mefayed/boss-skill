@@ -1,6 +1,9 @@
 {
   "name": "boss-skill",
   "owner": { "name": "Mohamed Fayed" },
+  "metadata": {
+    "description": "Boss: a Claude Code plugin that sends each coding task to the cheapest model that can do it right and reviews every diff."
+  },
   "plugins": [
     {
       "name": "boss",

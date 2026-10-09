@@ -318,6 +318,15 @@ Omitting `tools:` inherits everything, but MCP schemas are **deferred**: names o
 
 </details>
 
+## What it runs and sends
+
+Boss is markdown plus one shell hook. It has no server, makes no network calls of its own and collects nothing.
+
+- **The hook** (`hooks/builder-guard.sh`) runs on your machine before each Bash command. It reads the command text and allows or blocks it. It writes nothing and sends nothing.
+- **Subagents** run inside your Claude Code session, on your own Anthropic account, like any other subagent. They run the commands a task needs (tests, builds, searches) in your repo.
+- **Codex and other model CLIs** run only when you name them. Boss then calls that vendor's CLI on your machine, which sends the prompt and the code it reads to that vendor, under your account and their terms. Without that ask, nothing goes to them.
+- **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets.
+
 ## Requirements
 
 - Claude Code with subagent support (`.claude/agents` definitions, per-dispatch model overrides).

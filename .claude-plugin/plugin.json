@@ -1,12 +1,17 @@
 {
   "name": "boss",
+  "displayName": "Boss",
   "description": "Multi-model orchestration: a supervisor session keeps small work inline, dispatches the rest to the cheapest capable model, reviews every diff in full, and reports back compactly.",
-  "version": "1.19.8",
+  "version": "1.19.9",
   "author": {
     "name": "Mohamed Fayed",
     "url": "https://github.com/mefayed"
   },
   "homepage": "https://github.com/mefayed/boss-skill",
   "repository": "https://github.com/mefayed/boss-skill",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": ["orchestration", "multi-agent", "subagents", "model-routing", "code-review", "debate", "codex"],
+  "icon": "./assets/logo.png",
+  "documentationUrl": "https://github.com/mefayed/boss-skill#readme",
+  "supportUrl": "https://github.com/mefayed/boss-skill/issues"
 }
