@@ -35,7 +35,7 @@ Plugin installs namespace agent types (`boss:builder`, `boss:builder-deep`, `bos
 
 Each lives in this skill's base directory (the path shown when the skill loaded). When its trigger fires, read it before acting and follow it:
 - `codex.md` — the user says "codex", uses any word as a model name (astra, sol — also the common typo "soul" — terra, luna, spark, whatever ships next), or names a version with no Claude family ("use 6.1"); and before every Codex dispatch. Holds catalog resolution, roles, the MCP check, run and harvest.
-- `debate.md` — before any debate: the user asks ("debate it", "validate this approach", "compare options", "are we sure this is the best way"), or you face 2+ genuinely viable options on an expensive-to-reverse decision and one advisor exchange won't settle it. Never for routine choices — a debate that confirms the obvious is wasted tokens.
+- `debate.md` — before any debate: the user asks ("debate it", "validate this approach", "compare options", "are we sure this is the best way") or asks an open design question ("what's the best way to X") on an expensive-to-reverse decision, or you face 2+ genuinely viable options on an expensive-to-reverse decision and one advisor exchange won't settle it. Never for routine choices — a debate that confirms the obvious is wasted tokens.
 - `challenge.md` — Challenge mode, below.
 - `outside-clis.md` — Outside CLIs, below.
 

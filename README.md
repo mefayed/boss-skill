@@ -201,7 +201,7 @@ And the lanes off the ladder:
 
 When you want proof that an approach is the best one before expensive work, say `debate it` (or `validate this approach`, `compare options`). The supervisor:
 
-1. Traces the code and frames 2–3 real candidate approaches with shared facts.
+1. Traces the code and frames 2–3 real candidate approaches with shared facts. When the options aren't clear, or you ask an open question ("what's the best way to X"), it first runs an **open round**: 2–3 models answer blind with no options given, and the candidates come from their answers — so the debate isn't capped by the supervisor's own framing. If they all agree and no rival can be named, you get that consensus, marked as untested.
 2. Spawns one read-only **advocate** per candidate, in parallel, on **different models** (default Sonnet + Opus) so it isn't one model arguing with itself. Each argues its position with `file:line` evidence and must concede the condition under which a rival wins.
 3. A **judge** rules — Fable by default, or whoever you name (`judge with astra`; if that model was arguing, Fable takes its place). Everyone argues blind: advocates and the judge see only labels (Advocate A, B…), never which model said what; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
 4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.

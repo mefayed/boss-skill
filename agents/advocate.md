@@ -24,4 +24,6 @@ CONCESSION: the one condition under which a rival would beat you
 
 If later sent the rivals' cases for a rebuttal round: reply once more, under ~10 lines, only countering their attacks — no restating your case.
 
+In an open round the brief carries no candidates: propose the one approach you judge best and reply once, under ~15 lines — `POSITION`, `CASE`, and `RISKS` (its weakest point) in place of ATTACKS and CONCESSION.
+
 In a challenge-mode run the brief's role and reply shape take precedence over the rules above: you may revise or concede your plan, and you reply once per turn, not once per run.
