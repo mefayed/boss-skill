@@ -1,6 +1,6 @@
 # Privacy
 
-Boss is a Claude Code plugin made of markdown files and one local shell hook. It has no server, collects no data and sends nothing to its author.
+Boss is a Claude Code plugin made of markdown files and one prompt hook. It has no server, collects no data and sends nothing to its author. The hook sends the matched Bash command text to the Claude model your Claude Code already uses, and nowhere else.
 
 **What it reads.** The files and command output in the repo you are working in, through your own Claude Code session, only to do the task you asked for.
 

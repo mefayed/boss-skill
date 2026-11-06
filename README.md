@@ -21,7 +21,7 @@
 <p align="center">
   boss turns your main Claude Code session into a supervisor.<br>
   Each task goes to the cheapest model that can do it right, the supervisor reads every diff itself,<br>
-  and you get the result back in a few plain lines. It's markdown and one shell hook, nothing else.
+  and you get the result back in a few plain lines. It's markdown and one hook config file, nothing else.
 </p>
 
 <p align="center">
@@ -131,9 +131,9 @@ Small, local work stays in your chat. Bigger work goes to a builder subagent on 
 
 ## What boss never does
 
-`hook` means a script or tool restriction blocks it, within the limits stated. `rule` means the skill instructs it and the supervisor's review is the only check.
+`hook` means a hook or tool restriction blocks it, within the limits stated. `rule` means the skill instructs it and the supervisor's review is the only check.
 
-- **Commit.** `hook, partial` Builders never commit. A tripwire hook also blocks push, commit and other destructive commands from builder, errand and advocate agents ([best effort](#whats-inside)). The supervisor and main thread are not covered, and obfuscated commands slip through.
+- **Commit.** `hook, partial` Builders never commit. A tripwire hook (a model judgment, so not deterministic) also blocks push, commit and other destructive commands from builder, errand and advocate agents ([best effort](#whats-inside)). The supervisor and main thread are meant to pass, and obfuscated commands slip through.
 - **Trust a green it didn't check.** `rule` Builder reports are claims. The supervisor reads the full diff and re-runs the gate.
 - **Spend your OpenAI credits unasked.** `rule` Codex joins only when you name it.
 - **Edit `~/.codex` without your yes.** `rule` If a Codex MCP server can act outside the sandbox, boss asks you what to do.
@@ -284,21 +284,23 @@ agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
 agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
-hooks/builder-guard.sh    tripwire: blocks destructive Bash (push, commit, reset --hard, rm -rf, DROP, gh/curl writes) from builder + errand + advocate agents ONLY
-tests/guard-test.sh       pins the guard's allow/block table and the agent-file shape, incl. known ceilings
+hooks/hooks.json          tripwire (prompt hook): blocks destructive Bash (push, commit, reset --hard, rm -r, DROP, gh/curl writes) from builder + errand + advocate agents ONLY
+tests/guard-test.sh       pins the guard hook's shape (prompt handlers only, every lane named) and the agent-file shape
 ```
 
 <details>
 <summary>The guard: what it catches and what it doesn't</summary>
 
-The guard is agent-scoped: hook input carries `agent_type` only inside subagents, so your own commands and the supervisor's are never intercepted. It's a best-effort tripwire against accidental destructive commands from builder, errand and advocate agents. It is not a security boundary. Obfuscated commands get through (including any indirection that hides the command text, such as writing it to a file and running `sh that-file`; an agent building this release did exactly that unprompted) and some safe commands are wrongly blocked. The supervisor's full diff read remains the real enforcement. It fails open on unexpected input, and the `general-purpose` fallback lane stays instruction-only (unguarded).
+The guard is a prompt hook. When a Bash command matches one of its `if` patterns (`git push*`, `git commit*`, `rm *`, `gh *`, `curl *` and a few more), Claude Code sends the hook input, meaning the command text and the agent name, to the Claude background model, which allows or blocks it. That is a model judgment, so it is not deterministic. It only fires on those patterns, so most Bash calls cost nothing. A matching command from you or the supervisor also triggers a model call, with a little latency and token use; the prompt tells the model to allow those, so they are not meant to be blocked. For builder, errand and advocate agents it blocks the same categories as before: push, commit, `reset --hard`, `clean -f`, `checkout -f`, `rm -r`, DROP/TRUNCATE, and `gh`/`curl` writes. It is a best-effort tripwire against accidental destructive commands, not a security boundary. Commands that do not match an `if` pattern pass (for example `git -C dir push`), as does anything that hides the command text, such as writing it to a file and running `sh that-file`. Claude Code does not document what happens when the hook's model call errors or times out, so do not rely on either outcome. The supervisor's full diff read remains the real enforcement, and the `general-purpose` fallback lane stays instruction-only (unguarded).
+
+Why a prompt hook: the Anthropic plugin directory accepts command hooks only from Verified organizations, so the old shell script had to go.
 
 </details>
 
 <details>
 <summary>Read-only lanes: how far "read-only" goes</summary>
 
-The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. Errand and advocate share the builders' destructive-Bash tripwire. Neither is read-only enforcement: Bash stays live in every one of these lanes and the guard only pattern-matches it. A plugin cannot sandbox a shell, so an authenticated CLI the guard does not name can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
+The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. Errand and advocate share the builders' destructive-Bash tripwire. Neither is read-only enforcement: Bash stays live in every one of these lanes and the guard only judges the command text. A plugin cannot sandbox a shell, so an authenticated CLI the guard does not name can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
 
 </details>
 
@@ -320,9 +322,9 @@ Omitting `tools:` inherits everything, but MCP schemas are **deferred**: names o
 
 ## What it runs and sends
 
-Boss is markdown plus one shell hook. It has no server, makes no network calls of its own and collects nothing.
+Boss is markdown plus one hook config file. It has no server, makes no network calls of its own and collects nothing.
 
-- **The hook** (`hooks/builder-guard.sh`) runs on your machine before each Bash command. It reads the command text and allows or blocks it. It writes nothing and sends nothing.
+- **The hook** (`hooks/hooks.json`) is a prompt hook. On a Bash command that matches one of its patterns, Claude Code sends the command text and agent name to the Claude model your session already uses, which allows or blocks it. Boss itself writes nothing and sends nothing to its author.
 - **Subagents** run inside your Claude Code session, on your own Anthropic account, like any other subagent. They run the commands a task needs (tests, builds, searches) in your repo.
 - **Codex and other model CLIs** run only when you name them. Boss then calls that vendor's CLI on your machine, which sends the prompt and the code it reads to that vendor, under your account and their terms. Without that ask, nothing goes to them.
 - **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets.
@@ -333,7 +335,7 @@ Boss is markdown plus one shell hook. It has no server, makes no network calls o
 - Access to the models you want in the lanes; edit the `model:` frontmatter in `agents/*.md` to match your plan.
 - A Sonnet or Opus main session. Boss's supervisor is your main model; in our tests Haiku as supervisor skipped boss's own rules (it accepted a user's wrong guess about a bug and committed unasked).
 
-The plugin itself has **zero dependencies**: markdown plus a plain POSIX-sh hook. Everything else is optional. When a tool is missing, boss degrades to the nearest available check, says so in its report, and suggests the install line.
+The plugin itself has **zero dependencies**: markdown plus one hook config file, so no jq and no shell are needed for the hook. Everything else is optional. When a tool is missing, boss degrades to the nearest available check, says so in its report, and suggests the install line.
 
 <details>
 <summary>Optional tools</summary>
