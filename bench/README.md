@@ -50,7 +50,7 @@ Isolation is checked on every run, not assumed. The session's `init` event lists
 - the output style is `default`
 - memory is off
 
-The summary warns about any run that fails the check. On the development machine, baseline loaded 19 built-in skills and 5 built-in agents. Boss loaded the same plus `boss:boss` and the 5 `boss:*` agents.
+The summary warns about any run that fails the check. On the development machine, baseline loaded 19 built-in skills and 5 built-in agents. Boss loaded the same plus `boss:boss` and the 6 `boss:*` agents.
 
 ## Tasks
 
@@ -63,6 +63,7 @@ The fixture is `fixture/`, a small shop library: orders, inventory, pricing, rep
 | 03-cancel-stock-bug | standard | bug report that blames the wrong component | 1 line of logic |
 | 04-report-since | standard | small CLI feature with input validation | 1-2 files |
 | 05-partial-refunds | harder | cross-file feature with an exact-cents edge case | 4-5 files |
+| 06-restock-persists | standard | new CLI command whose result must still be there on the next run | 1-2 files |
 
 Each `task.md` is the exact prompt, written the way a user would type it. The tasks were not picked to favour boss. Task 03 is a one-line fix and tasks 01-02 are mechanical. Boss's own rules say to do work this small inline, so on these tasks its extra instructions may cost more than they save. That is part of what the benchmark measures.
 
@@ -71,14 +72,14 @@ The hidden tests check behaviour the prompt asks for, through public functions, 
 Two checks were done on the hidden tests during development:
 
 - Each one fails on the untouched fixture. The command is under [Re-checking the tests](#re-checking-the-tests).
-- Each one passes, with the full suite, after a hand-written reference fix. The reference fixes are not included here.
+- Each one passes, with the full suite, after a hand-written reference fix. The reference fixes are not included here, except task 06's, which is in `bench/inspect/`.
 
 ## Running it
 
 Requirements: `claude` logged in, `python3` (3.9+), `git`, a POSIX `sh`.
 
 ```sh
-sh bench/run.sh                                  # all 5 tasks x 2 conditions x 1 rep
+sh bench/run.sh                                  # all 6 tasks x 2 conditions x 1 rep
 REPS=3 sh bench/run.sh                           # more reps (recommended)
 TASKS="01-rename-format-cents 03-cancel-stock-bug" sh bench/run.sh
 sh bench/run.sh summarize bench/results/<stamp>.jsonl   # re-print a table
@@ -94,7 +95,7 @@ sh bench/run.sh summarize bench/results/<stamp>.jsonl   # re-print a table
 | `CONDITIONS` | `baseline boss` | either or both |
 | `EFFORT` | unset | passes `--effort`; unset means Claude Code's default for the model |
 
-A full run is 10 sessions. At the default cap, the most it can spend is $30 per rep.
+A full run is 12 sessions. At the default cap, the most it can spend is $36 per rep.
 
 Run order alternates. On some tasks baseline goes first, on others boss does, and the pattern flips each rep. That way neither condition always runs second, which could give it warmer prompt caches.
 
@@ -150,6 +151,29 @@ Quality fix, measured on task 03 (bug report that blames the wrong component):
 
 Next step for a fair test of the savings claim: a larger fixture with tasks big enough that boss dispatches, and 3+ runs per cell.
 
+## Inspector check
+
+Task 06 is the visible-pass, human-fail case. A planted patch adds `shop restock SKU QTY`, prints the right number and never saves it. The visible tests pass and the hidden test fails. `bench/inspect/` holds the planted patch, a fixed patch, and a deliberately weak `contract.txt` that leaves out persistence. A PASS on the planted patch would mean the inspector followed the contract instead of the user's words.
+
+`bench/inspect-check.sh` runs the inspector against these:
+
+```sh
+sh bench/inspect-check.sh                        # MOCK=1 by default, free: 14 of 14 matched
+PAID=1 MOCK=0 sh bench/inspect-check.sh          # paid: planted, fixed, end to end
+```
+
+Mock mode reads canned replies from `bench/inspect/mock/` and checks that the parser reaches the expected outcome for each. It makes no model calls. Paid mode refuses to run unless both `PAID=1` and `MOCK=0` are set. It runs three sessions on `--model sonnet`, each capped at `--max-budget-usd 0.6`, so $1.80 at most.
+
+The full paid plan pins every invocation (`TASKS`, `CONDITIONS`, `REPS=1`, a `BUDGET`): the inspect-check above, task 06 on baseline ($0.50 cap) and on boss ($1.50 cap), and task 04 on boss ($0.50 cap) as the inline path. Worst case is $4.30.
+
+One run of each, on 2026-11-11 (Claude Code 2.1.322), so direction only:
+
+- Inspect-check, all three sessions on sonnet, $0.45 together. Planted patch: FAIL, with "prints 20, the next `stock` still shows 15" and the unknown SKU accepted, although the contract only asked for the printed number. Fixed patch: PASS. End to end through `/boss:boss inspect it`: FAIL reported, nothing changed, fix offered. The tree was unchanged in all three.
+- In these headless runs a finished subagent could not be resumed (`No transcript found for agent ID`), so the second phase went to a fresh inspector carrying the frozen first test. The same-agent path was only exercised in interactive sessions.
+- Task 06 on boss (`20261111T092026Z.jsonl`): passed, $0.33, and stayed inline with no dispatch, so the inspector did not run. The supervisor ran `restock` then checked the saved file on a copy itself. Boss's rules send persistent data to a builder, so this is a finding about the dispatch rule, not about the inspector.
+- Task 04 on boss (`20261111T092117Z.jsonl`): passed, $0.29, inline, with the first human test run on the real CLI before and after the change.
+- The task 06 baseline run was skipped to stay under the spending cap.
+
 ## Re-checking the tests
 
 To confirm the hidden tests fail on the untouched fixture and the visible ones pass:
@@ -165,10 +189,11 @@ done
 
 ## Known limits
 
-- **Small N.** 5 tasks and 1 rep by default. Agent runs vary a lot from one run to the next. A single run per cell shows direction, not proof. Use `REPS=3` or more before drawing conclusions, and report the spread, not only the means.
+- **Small N.** 6 tasks and 1 rep by default. Agent runs vary a lot from one run to the next. A single run per cell shows direction, not proof. Use `REPS=3` or more before drawing conclusions, and report the spread, not only the means.
 - **One fixture, one language.** A small Python codebase, much smaller than most real repos. Boss's dispatching is meant for larger work, so this setup is not neutral. Small repos likely favour baseline, because there is less context for boss to keep out of the expensive model.
 - **Model versions drift.** `opus` and `haiku`/`sonnet` are aliases that move. Claude Code updates change prompts and tools. Each line records the Claude Code version and the resolved models. Compare only runs from the same versions.
 - **Prompt caching.** The two conditions share most of Claude Code's system prompt, so whichever runs second may get cheaper cache reads. The run order alternates to spread this out. It is not eliminated.
+- **The task 06 reference fix is on disk too.** `bench/inspect/restock-fixed.patch` is a working answer. It has the same exposure as the hidden tests: an agent that searched the whole filesystem could find it.
 - **The hidden tests are on disk.** They sit in this repo, not in the temp directory, and the agent is never told about them. Neither the temp directory nor the loaded plugin copy contains them, but an agent that searched the whole filesystem could find them. Nothing in the transcripts so far shows this happening, and the transcripts are kept so it can be checked.
 - **`bypassPermissions`** lets the agent run any command as your user. Run this on a machine where that is acceptable.
 - **Not fully hermetic.** Even with `--no-session-persistence`, Claude Code 2.1.289 writes subagent transcripts under `~/.claude/projects/<temp-dir-name>/`. These are new directories named after each temp dir. They don't affect later runs, but you may want to delete them.

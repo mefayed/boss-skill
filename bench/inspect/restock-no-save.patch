@@ -1,0 +1,57 @@
+diff --git a/shop/cli.py b/shop/cli.py
+index 4bf0eb4..c00c74c 100644
+--- a/shop/cli.py
++++ b/shop/cli.py
+@@ -16,6 +16,9 @@ def build_parser():
+     sub.add_parser("stock", help="units on hand per SKU")
+     rep = sub.add_parser("report", help="sales summary over paid orders")
+     rep.add_argument("--csv", action="store_true", help="CSV instead of text")
++    rs = sub.add_parser("restock", help="record a delivery")
++    rs.add_argument("sku")
++    rs.add_argument("qty", type=int)
+     return parser
+ 
+ 
+@@ -26,6 +29,12 @@ def cmd_stock(args, out):
+         out.write("%-8s %-20s %5d\n" % (sku, catalog[sku].name, inventory.on_hand.get(sku, 0)))
+ 
+ 
++def cmd_restock(args, out):
++    inventory = storage.load_inventory(os.path.join(args.data, "inventory.json"))
++    inventory.add_stock(args.sku, args.qty)
++    out.write("%s now %d\n" % (args.sku, inventory.on_hand[args.sku]))
++
++
+ def cmd_report(args, out):
+     catalog = storage.load_catalog(os.path.join(args.data, "catalog.json"))
+     orders = storage.load_orders(os.path.join(args.data, "orders.json"))
+@@ -38,7 +47,7 @@ def main(argv=None, out=None):
+     out = out or sys.stdout
+     args = build_parser().parse_args(argv)
+     try:
+-        {"stock": cmd_stock, "report": cmd_report}[args.command](args, out)
++        {"stock": cmd_stock, "report": cmd_report, "restock": cmd_restock}[args.command](args, out)
+     except ShopError as e:
+         sys.stderr.write("error: %s\n" % e)
+         return 1
+diff --git a/tests/test_restock.py b/tests/test_restock.py
+new file mode 100644
+index 0000000..2d4eb57
+--- /dev/null
++++ b/tests/test_restock.py
+@@ -0,0 +1,15 @@
++import io
++import os
++import unittest
++
++from shop.cli import main
++
++EXAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples")
++
++
++class RestockTest(unittest.TestCase):
++    def test_restock_prints_new_level(self):
++        out = io.StringIO()
++        code = main(["--data", EXAMPLES, "restock", "PEN-03", "5"], out=out)
++        self.assertEqual(code, 0)
++        self.assertIn("PEN-03 now 20", out.getvalue())

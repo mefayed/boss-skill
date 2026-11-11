@@ -2,8 +2,9 @@
 # Regression test for the boss plugin shape. Checks hooks/hooks.json (the guard
 # is a prompt hook: parses, prompt handlers only, one shared prompt that names
 # every dispatchable lane) and the agent files (identical builder bodies, no
-# ignored keys, closed advisory tools lists). It cannot test the model's
-# allow/block judgment itself; that was live-tested by hand.
+# ignored keys, closed advisory tools lists). The inspector is the second lane
+# deliberately not named in the hook, and its tools list is closed. It cannot
+# test the model's allow/block judgment itself; that was live-tested by hand.
 
 dir=$(cd "$(dirname "$0")/.." && pwd)
 hooks="$dir/hooks/hooks.json"
@@ -79,6 +80,73 @@ for adv in advocate fable-advisor; do
   fi
 done
 
+# The inspector's tools list is closed too, and its model is pinned to sonnet or
+# opus (never haiku, never inherited). Same normalising as the loop above.
+f="$dir/agents/inspector.md"
+line=$(grep '^tools:' "$f" 2>/dev/null | sed 's/^tools://; s/[]["'"'"']/ /g')
+if [ -z "$line" ] || ! printf '%s' "$line" | grep -q 'Bash' || ! printf '%s' "$line" | grep -q 'Read'; then
+  echo "FAIL: inspector.md must enumerate a closed tools: list with Bash and Read"
+  fail=$((fail + 1))
+elif printf '%s' "$line" | grep -Eq '(^|[ ,])(Write|Edit|NotebookEdit|Agent|Skill)([ ,]|$)|mcp__|ToolSearch'; then
+  echo "FAIL: inspector.md tools: grants a write, dispatch, Skill or MCP tool"
+  fail=$((fail + 1))
+elif grep -q '^disallowedTools:' "$f"; then
+  echo "FAIL: inspector.md uses disallowedTools: instead of a closed list"
+  fail=$((fail + 1))
+elif ! grep -Eq '^model: (sonnet|opus)$' "$f"; then
+  echo "FAIL: inspector.md model must be sonnet or opus"
+  fail=$((fail + 1))
+else
+  echo "PASS: inspector.md keeps a closed, write-free tools: list and a sonnet/opus model"
+  pass=$((pass + 1))
+fi
+
+# No hook guards the inspector, so its rule text is the only guard: pin it.
+if grep -qF 'Never commit, push, reset' "$dir/agents/inspector.md" 2>/dev/null; then
+  echo "PASS: inspector.md carries its no-commit/push/reset rule"
+  pass=$((pass + 1))
+else
+  echo "FAIL: inspector.md rule 'Never commit, push, reset' missing"
+  fail=$((fail + 1))
+fi
+
+# Every file SKILL.md lists as on-demand must exist.
+if python3 -c "
+import re, os, sys
+d = sys.argv[1]
+fs = re.findall(r'^- \`([\w-]+\.md)\` —', open(d + '/skills/boss/SKILL.md').read(), re.M)
+assert fs
+for f in fs:
+    assert os.path.isfile(d + '/skills/boss/' + f), f
+" "$dir" >/dev/null 2>&1; then
+  echo "PASS: every on-demand file named in SKILL.md exists"
+  pass=$((pass + 1))
+else
+  echo "FAIL: an on-demand file named in SKILL.md is missing"
+  fail=$((fail + 1))
+fi
+
+# Every agent and skill markdown file carries the SPDX header.
+if [ -z "$(grep -L 'SPDX-License-Identifier: MIT' "$dir"/agents/*.md "$dir"/skills/*/*.md)" ]; then
+  echo "PASS: every agent and skill file carries the SPDX header"
+  pass=$((pass + 1))
+else
+  echo "FAIL: an agent or skill file lacks the SPDX header"
+  fail=$((fail + 1))
+fi
+
+# /boss:mode is the expensive full chain: only the user may start it, and it
+# must point at the boss rules and the chain procedure instead of copying them.
+f="$dir/skills/mode/SKILL.md"
+if grep -q '^name: mode$' "$f" 2>/dev/null && grep -q '^disable-model-invocation: true$' "$f" &&
+   grep -qF 'skills/boss/SKILL.md' "$f" && grep -qF 'skills/boss/mode.md' "$f" && grep -qF '$ARGUMENTS' "$f"; then
+  echo "PASS: skills/mode/SKILL.md is user-invoked only and points at the boss rules"
+  pass=$((pass + 1))
+else
+  echo "FAIL: skills/mode/SKILL.md missing, model-invocable, or not pointing at the boss rules"
+  fail=$((fail + 1))
+fi
+
 # The guard is a prompt hook, never a command hook (the plugin directory refuses
 # command hooks from non-Verified orgs). Each check is a python3 assertion over
 # hooks/hooks.json; the file is passed as argv so paths never reach the code.
@@ -111,15 +179,16 @@ walk(h)'
 hook_check "every handler if starts with Bash(" 'assert all(x.get("if", "").startswith("Bash(") for x in hs)'
 hook_check "all handlers share one identical prompt" 'assert len(ps) == 1 and None not in ps'
 hook_check "the prompt contains \$ARGUMENTS" 'assert "$ARGUMENTS" in ps.pop()'
-hook_check "every lane except fable-advisor is named bare and as boss:<lane>" '
+hook_check "every lane except fable-advisor and inspector is named bare and as boss:<lane>" '
 p = ps.pop()
 names = [re.search(r"^name:\s*(\S+)", open(f).read(), re.M).group(1) for f in glob.glob(sys.argv[2] + "/agents/*.md")]
 assert names
 for n in names:
-    if n == "fable-advisor":
+    if n in ("fable-advisor", "inspector"):
         continue
     assert re.search(r"(?<![\w:-])" + n + r"(?![\w-])", p) and ("boss:" + n) in p, n'
 hook_check "fable-advisor is not named in the prompt" 'assert "fable-advisor" not in ps.pop()'
+hook_check "inspector is not named in the prompt" 'assert "inspector" not in ps.pop()'
 
 echo "----"
 echo "passed: $pass, failed: $fail"

@@ -1,0 +1,92 @@
+diff --git a/shop/cli.py b/shop/cli.py
+index 4bf0eb4..22d322a 100644
+--- a/shop/cli.py
++++ b/shop/cli.py
+@@ -5,7 +5,7 @@ import os
+ import sys
+ 
+ from . import report, storage
+-from .errors import ShopError
++from .errors import ShopError, UnknownProduct
+ 
+ 
+ def build_parser():
+@@ -16,6 +16,9 @@ def build_parser():
+     sub.add_parser("stock", help="units on hand per SKU")
+     rep = sub.add_parser("report", help="sales summary over paid orders")
+     rep.add_argument("--csv", action="store_true", help="CSV instead of text")
++    rs = sub.add_parser("restock", help="record a delivery")
++    rs.add_argument("sku")
++    rs.add_argument("qty", type=int)
+     return parser
+ 
+ 
+@@ -26,6 +29,17 @@ def cmd_stock(args, out):
+         out.write("%-8s %-20s %5d\n" % (sku, catalog[sku].name, inventory.on_hand.get(sku, 0)))
+ 
+ 
++def cmd_restock(args, out):
++    catalog = storage.load_catalog(os.path.join(args.data, "catalog.json"))
++    if args.sku not in catalog:
++        raise UnknownProduct("unknown SKU: %s" % args.sku)
++    path = os.path.join(args.data, "inventory.json")
++    inventory = storage.load_inventory(path)
++    inventory.add_stock(args.sku, args.qty)
++    storage.save_inventory(path, inventory)
++    out.write("%s now %d\n" % (args.sku, inventory.on_hand[args.sku]))
++
++
+ def cmd_report(args, out):
+     catalog = storage.load_catalog(os.path.join(args.data, "catalog.json"))
+     orders = storage.load_orders(os.path.join(args.data, "orders.json"))
+@@ -38,7 +52,7 @@ def main(argv=None, out=None):
+     out = out or sys.stdout
+     args = build_parser().parse_args(argv)
+     try:
+-        {"stock": cmd_stock, "report": cmd_report}[args.command](args, out)
++        {"stock": cmd_stock, "report": cmd_report, "restock": cmd_restock}[args.command](args, out)
+     except ShopError as e:
+         sys.stderr.write("error: %s\n" % e)
+         return 1
+diff --git a/tests/test_restock.py b/tests/test_restock.py
+new file mode 100644
+index 0000000..6d5a8fd
+--- /dev/null
++++ b/tests/test_restock.py
+@@ -0,0 +1,36 @@
++import io
++import json
++import os
++import shutil
++import tempfile
++import unittest
++
++from shop.cli import main
++
++EXAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "examples")
++
++
++class RestockTest(unittest.TestCase):
++    def setUp(self):
++        d = tempfile.TemporaryDirectory()
++        self.addCleanup(d.cleanup)
++        self.data = os.path.join(d.name, "data")
++        shutil.copytree(EXAMPLES, self.data)
++
++    def run_cli(self, *argv):
++        out = io.StringIO()
++        return main(["--data", self.data] + list(argv), out=out), out.getvalue()
++
++    def test_restock_prints_new_level(self):
++        code, out = self.run_cli("restock", "PEN-03", "5")
++        self.assertEqual(code, 0)
++        self.assertIn("PEN-03 now 20", out)
++
++    def test_restock_persists(self):
++        self.run_cli("restock", "PEN-03", "5")
++        with open(os.path.join(self.data, "inventory.json")) as f:
++            self.assertEqual(json.load(f)["on_hand"]["PEN-03"], 20)
++
++    def test_unknown_sku(self):
++        code, _ = self.run_cli("restock", "NOPE-99", "5")
++        self.assertEqual(code, 1)

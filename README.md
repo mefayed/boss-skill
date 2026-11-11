@@ -91,6 +91,8 @@ boss think more               one step up: deep variant or next model
 boss careful with tokens      one step down, advisor only if irreversible, batched edits
 debate it                     2–3 approaches argued on different models, a judge rules
 challenge it                  one model writes the plan, a stronger one checks it
+inspect it                    a fresh model tries the change the way you would
+/boss:mode <task>             the full chain for one task: debate, challenge, build, inspect
 second opinion from codex     adds Codex as an extra advisor (only when you name it)
 ```
 
@@ -109,6 +111,8 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 | `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
 | `challenge it` | adds a check to any request: one model writes the plan, a stronger one checks it, a judge settles what's left (see below) |
 | `sonnet writes, opus checks` | picks the team yourself — add more checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
+| `inspect it` / `QA it` | a fresh model tries the change the way you would, from your own words; also runs automatically after every dispatched build. On code boss didn't build this session it reports and offers the fix, it doesn't apply it |
+| `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you type it |
 | `plan …, challenge it` | stops at the agreed plan instead of building it |
 | `who can challenge?` | lists the models you can pick |
 | `debate A vs B, then challenge` | the debate's winner writes the plan, the losers check it |
@@ -134,7 +138,7 @@ Small, local work stays in your chat. Bigger work goes to a builder subagent on 
 `hook` means a hook or tool restriction blocks it, within the limits stated. `rule` means the skill instructs it and the supervisor's review is the only check.
 
 - **Commit.** `hook, partial` Builders never commit. A tripwire hook (a model judgment, so not deterministic) also blocks push, commit and other destructive commands from builder, errand and advocate agents ([best effort](#whats-inside)). The supervisor and main thread are meant to pass, and obfuscated commands slip through.
-- **Trust a green it didn't check.** `rule` Builder reports are claims. The supervisor reads the full diff and re-runs the gate.
+- **Trust a green it didn't check.** `rule` Builder reports are claims. The supervisor reads the full diff and re-runs the gate. After a dispatched build, a fresh inspector model also tries the change the way you would, and replies PASS, FAIL or NOT CHECKED with the command and its output. Only the supervisor can accept a PASS.
 - **Spend your OpenAI credits unasked.** `rule` Codex joins only when you name it.
 - **Edit `~/.codex` without your yes.** `rule` If a Codex MCP server can act outside the sandbox, boss asks you what to do.
 - **Call an outside model on its own.** `rule` Only an explicit ask counts. A model named in passing, in a file or in memory does not.
@@ -279,13 +283,17 @@ skills/boss/outside-clis.md  outside-model procedure, read only when you name on
 skills/boss/challenge.md     challenge-mode procedure, read only when you ask for one
 skills/boss/codex.md         Codex name resolution and run procedure, read only when you name Codex or a model
 skills/boss/debate.md        debate procedure, read only when a debate runs
+skills/boss/inspect.md       inspection procedure, read only when an inspection runs
+skills/boss/mode.md          full-chain procedure, read only when you ask for boss mode
+skills/mode/SKILL.md         the /boss:mode command: loads boss and runs the full chain; never starts on its own
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
 agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
 agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
+agents/inspector.md       tries a finished change like the user would, on scratch copies; reports PASS / FAIL / NOT CHECKED
 hooks/hooks.json          tripwire (prompt hook): blocks destructive Bash (push, commit, reset --hard, rm -r, DROP, gh/curl writes) from builder + errand + advocate agents ONLY
-tests/guard-test.sh       pins the guard hook's shape (prompt handlers only, every lane named) and the agent-file shape
+tests/guard-test.sh       pins the guard hook's shape (prompt handlers only, every lane named except fable-advisor and the inspector) and the agent-file shape
 ```
 
 <details>
@@ -300,7 +308,7 @@ Why a prompt hook: the Anthropic plugin directory accepts command hooks only fro
 <details>
 <summary>Read-only lanes: how far "read-only" goes</summary>
 
-The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. Errand and advocate share the builders' destructive-Bash tripwire. Neither is read-only enforcement: Bash stays live in every one of these lanes and the guard only judges the command text. A plugin cannot sandbox a shell, so an authenticated CLI the guard does not name can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
+The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. Errand and advocate share the builders' destructive-Bash tripwire. The `inspector` has a closed `tools:` list too, but it sits outside the tripwire hook, so nothing guards it on push or commit. That makes it weaker than errand there. Its own rules and the supervisor's ref and stash compare are the checks. None of these is read-only enforcement: Bash stays live in every one of these lanes and the guard only judges the command text. A plugin cannot sandbox a shell, so an authenticated CLI the guard does not name can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
 
 </details>
 
@@ -326,6 +334,7 @@ Boss is markdown plus one hook config file. It has no server, makes no network c
 
 - **The hook** (`hooks/hooks.json`) is a prompt hook. On a Bash command that matches one of its patterns, Claude Code sends the command text and agent name to the Claude model your session already uses, which allows or blocks it. Boss itself writes nothing and sends nothing to its author.
 - **Subagents** run inside your Claude Code session, on your own Anthropic account, like any other subagent. They run the commands a task needs (tests, builds, searches) in your repo.
+- **The inspector** runs your app's real entry point (the CLI, localhost requests, playwright-cli if installed) against scratch copies of your repo. It runs on your own account like any other subagent.
 - **Codex and other model CLIs** run only when you name them. Boss then calls that vendor's CLI on your machine, which sends the prompt and the code it reads to that vendor, under your account and their terms. Without that ask, nothing goes to them.
 - **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets.
 

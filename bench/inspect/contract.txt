@@ -1,0 +1,3 @@
+Task: add `shop restock SKU QTY`.
+FIRST HUMAN TEST: `restock PEN-03 5` prints 20
+Also check: `restock PEN-03 0` gives an error and no traceback.
