@@ -1,0 +1,12 @@
+error: /nonexistent/catalog.json: [Errno 2] No such file or directory: '/nonexistent/catalog.json'
+....usage: shop report [-h] [--csv] [--since YYYY-MM-DD]
+shop report: error: argument --since: not a date (want YYYY-MM-DD): '2026-13-01'
+usage: shop report [-h] [--csv] [--since YYYY-MM-DD]
+shop report: error: argument --since: not a date (want YYYY-MM-DD): '03/02/2026'
+usage: shop report [-h] [--csv] [--since YYYY-MM-DD]
+shop report: error: argument --since: not a date (want YYYY-MM-DD): '2026-3-2'
+....................................
+----------------------------------------------------------------------
+Ran 40 tests in 0.011s
+
+OK

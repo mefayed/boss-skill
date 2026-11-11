@@ -1,0 +1,30 @@
+diff --git a/shop/orders.py b/shop/orders.py
+index df635bb..ee5b122 100644
+--- a/shop/orders.py
++++ b/shop/orders.py
+@@ -67,5 +67,7 @@ class OrderService:
+     def cancel(self, order_id):
+         """Cancel an open order."""
+         order = self._open(order_id)
++        for item in order.items:
++            self.inventory.release(item.sku, item.quantity)
+         order.status = "cancelled"
+         return order
+diff --git a/tests/test_orders.py b/tests/test_orders.py
+index 5b7f5f8..e9fe986 100644
+--- a/tests/test_orders.py
++++ b/tests/test_orders.py
+@@ -36,6 +36,13 @@ class OrdersTest(unittest.TestCase):
+         with self.assertRaises(OutOfStock):
+             svc.add_item(order.id, "PEN-03", 16)
+ 
++    def test_cancel_releases_stock(self):
++        svc = make_service()
++        order = svc.create_order("ada", "2026-01-01")
++        svc.add_item(order.id, "PEN-03", 15)
++        svc.cancel(order.id)
++        self.assertEqual(svc.inventory.available("PEN-03"), 15)
++
+     def test_cancel_marks_cancelled(self):
+         svc = make_service()
+         order = svc.create_order("ada", "2026-01-01")

@@ -1,1 +1,0 @@
-We take deliveries a few times a week. Add a `shop restock SKU QTY` command so I can record one, like `shop restock PEN-03 5`. Unknown SKUs and quantities below 1 should give a normal CLI error, not a traceback.

@@ -1,0 +1,97 @@
+diff --git a/shop/money.py b/shop/money.py
+index b34e9bb..adb7926 100644
+--- a/shop/money.py
++++ b/shop/money.py
+@@ -16,7 +16,7 @@ def parse_money(text):
+     return -cents if negative else cents
+ 
+ 
+-def fmt_cents(cents):
++def format_cents(cents):
+     """Format cents as '12.34'."""
+     sign = "-" if cents < 0 else ""
+     cents = abs(cents)
+diff --git a/shop/receipt.py b/shop/receipt.py
+index 36f6a2e..f0db7f4 100644
+--- a/shop/receipt.py
++++ b/shop/receipt.py
+@@ -1,7 +1,7 @@
+ """Plain-text receipts for paid orders."""
+ 
+ from .errors import OrderStateError
+-from .money import fmt_cents
++from .money import format_cents
+ from .pricing import line_total
+ 
+ 
+@@ -13,6 +13,6 @@ def render_receipt(order, catalog):
+     for item in order.items:
+         name = catalog[item.sku].name if item.sku in catalog else item.sku
+         lines.append("%3d x %-20s @ %8s  %10s" % (
+-            item.quantity, name, fmt_cents(item.unit_price_cents), fmt_cents(line_total(item))))
+-    lines.append("Total: %s" % fmt_cents(order.total_cents))
++            item.quantity, name, format_cents(item.unit_price_cents), format_cents(line_total(item))))
++    lines.append("Total: %s" % format_cents(order.total_cents))
+     return "\n".join(lines) + "\n"
+diff --git a/shop/report.py b/shop/report.py
+index 1350338..dbb081e 100644
+--- a/shop/report.py
++++ b/shop/report.py
+@@ -3,7 +3,7 @@
+ import csv
+ import io
+ 
+-from .money import fmt_cents
++from .money import format_cents
+ from .pricing import line_total
+ 
+ 
+@@ -29,12 +29,12 @@ def render_text(summary, catalog):
+     lines = [
+         "Orders: %d" % summary["orders"],
+         "Units: %d" % summary["units"],
+-        "Revenue: %s" % fmt_cents(summary["revenue_cents"]),
++        "Revenue: %s" % format_cents(summary["revenue_cents"]),
+     ]
+     for sku in sorted(summary["by_sku"]):
+         row = summary["by_sku"][sku]
+         name = catalog[sku].name if sku in catalog else sku
+-        lines.append("  %-8s %-20s %4d  %10s" % (sku, name, row["units"], fmt_cents(row["revenue_cents"])))
++        lines.append("  %-8s %-20s %4d  %10s" % (sku, name, row["units"], format_cents(row["revenue_cents"])))
+     return "\n".join(lines) + "\n"
+ 
+ 
+@@ -51,6 +51,6 @@ def render_csv(summary, catalog):
+             product.name if product else "",
+             (product.category or "") if product else "",
+             row["units"],
+-            fmt_cents(row["revenue_cents"]),
++            format_cents(row["revenue_cents"]),
+         ])
+     return out.getvalue()
+diff --git a/tests/test_money.py b/tests/test_money.py
+index 141b3c1..21db690 100644
+--- a/tests/test_money.py
++++ b/tests/test_money.py
+@@ -1,7 +1,7 @@
+ import unittest
+ 
+ from shop.errors import ShopError
+-from shop.money import fmt_cents, parse_money, percent_of
++from shop.money import format_cents, parse_money, percent_of
+ 
+ 
+ class MoneyTest(unittest.TestCase):
+@@ -17,9 +17,9 @@ class MoneyTest(unittest.TestCase):
+                 parse_money(bad)
+ 
+     def test_format(self):
+-        self.assertEqual(fmt_cents(1234), "12.34")
+-        self.assertEqual(fmt_cents(5), "0.05")
+-        self.assertEqual(fmt_cents(-50), "-0.50")
++        self.assertEqual(format_cents(1234), "12.34")
++        self.assertEqual(format_cents(5), "0.05")
++        self.assertEqual(format_cents(-50), "-0.50")
+ 
+     def test_percent_of_rounds_half_up(self):
+         self.assertEqual(percent_of(1000, 10), 100)

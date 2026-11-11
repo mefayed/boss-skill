@@ -73,6 +73,6 @@ Never add a GOAL, a paraphrase, the builder's report, your review notes, your th
 - FAIL left open: the command and output, and the rounds tried.
 
 ## Limits
-- The inspector is not listed in the tripwire hook. The hook blocks curl writes with no localhost exemption, and a POST to the app is often the first human test. The cost is that nothing guards it on push, commit or reset either, so on that axis it is weaker than errand.
+- No hook guards the inspector (the plugin ships none), so nothing stops a push, commit or reset by it.
 - What holds it in place: a closed tools list, its rules, and the run baseline, which catches commits, branches, stashes, and pushes that update a tracking ref.
 - What that baseline cannot see: gitignored files, databases, processes, a push to a remote without a tracking ref, and other external state. That is why writes go to SCRATCH or to processes the inspector started.

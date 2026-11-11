@@ -1,0 +1,29 @@
+error: /nonexistent/catalog.json: [Errno 2] No such file or directory: '/nonexistent/catalog.json'
+....FE............................
+======================================================================
+ERROR: test_many_cancels_do_not_leak (tests.test_hidden.CancelReleasesStockTest.test_many_cancels_do_not_leak)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/rg/x8n757_j7yx6ck9kpwqhrr600000gn/T/bossbench.Mm9DZI/tests/test_hidden.py", line 29, in test_many_cancels_do_not_leak
+    svc.add_item(order.id, "PEN-03", 10)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/var/folders/rg/x8n757_j7yx6ck9kpwqhrr600000gn/T/bossbench.Mm9DZI/shop/orders.py", line 39, in add_item
+    self.inventory.reserve(sku, quantity)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+  File "/private/var/folders/rg/x8n757_j7yx6ck9kpwqhrr600000gn/T/bossbench.Mm9DZI/shop/inventory.py", line 24, in reserve
+    raise OutOfStock("%s: want %d, have %d" % (sku, quantity, self.available(sku)))
+shop.errors.OutOfStock: PEN-03: want 10, have 5
+
+======================================================================
+FAIL: test_cancelled_order_gives_stock_back (tests.test_hidden.CancelReleasesStockTest.test_cancelled_order_gives_stock_back)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/var/folders/rg/x8n757_j7yx6ck9kpwqhrr600000gn/T/bossbench.Mm9DZI/tests/test_hidden.py", line 19, in test_cancelled_order_gives_stock_back
+    self.assertEqual(svc.inventory.available("PEN-03"), 15)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 15
+
+----------------------------------------------------------------------
+Ran 34 tests in 0.004s
+
+FAILED (failures=1, errors=1)

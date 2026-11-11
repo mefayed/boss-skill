@@ -1,0 +1,6 @@
+error: /nonexistent/catalog.json: [Errno 2] No such file or directory: '/nonexistent/catalog.json'
+.............................................
+----------------------------------------------------------------------
+Ran 45 tests in 0.004s
+
+OK

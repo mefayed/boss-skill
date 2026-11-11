@@ -1,0 +1,107 @@
+diff --git a/shop/cli.py b/shop/cli.py
+index 4bf0eb4..fe24c2a 100644
+--- a/shop/cli.py
++++ b/shop/cli.py
+@@ -1,6 +1,7 @@
+ """Command line entry point: python3 -m shop.cli --data DIR <command>."""
+ 
+ import argparse
++import datetime
+ import os
+ import sys
+ 
+@@ -16,6 +17,7 @@ def build_parser():
+     sub.add_parser("stock", help="units on hand per SKU")
+     rep = sub.add_parser("report", help="sales summary over paid orders")
+     rep.add_argument("--csv", action="store_true", help="CSV instead of text")
++    rep.add_argument("--since", metavar="YYYY-MM-DD", help="only orders created on or after this date")
+     return parser
+ 
+ 
+@@ -26,10 +28,19 @@ def cmd_stock(args, out):
+         out.write("%-8s %-20s %5d\n" % (sku, catalog[sku].name, inventory.on_hand.get(sku, 0)))
+ 
+ 
++def parse_date(text):
++    """Validate a YYYY-MM-DD date and return it in canonical form."""
++    try:
++        return datetime.datetime.strptime(text, "%Y-%m-%d").date().isoformat()
++    except ValueError:
++        raise ShopError("not a date (want YYYY-MM-DD): %r" % text) from None
++
++
+ def cmd_report(args, out):
++    since = parse_date(args.since) if args.since else None
+     catalog = storage.load_catalog(os.path.join(args.data, "catalog.json"))
+     orders = storage.load_orders(os.path.join(args.data, "orders.json"))
+-    summary = report.sales_summary(orders)
++    summary = report.sales_summary(orders, since=since)
+     out.write(report.render_csv(summary, catalog) if args.csv else report.render_text(summary, catalog))
+ 
+ 
+diff --git a/shop/report.py b/shop/report.py
+index 1350338..6c53b9c 100644
+--- a/shop/report.py
++++ b/shop/report.py
+@@ -7,11 +7,14 @@ from .money import fmt_cents
+ from .pricing import line_total
+ 
+ 
+-def sales_summary(orders):
+-    """Totals over paid orders: order count, units, revenue, and per-SKU units/revenue."""
++def sales_summary(orders, since=None):
++    """Totals over paid orders: order count, units, revenue, and per-SKU units/revenue.
++
++    since is an ISO date (YYYY-MM-DD); orders created before it are skipped.
++    """
+     summary = {"orders": 0, "units": 0, "revenue_cents": 0, "by_sku": {}}
+     for order in orders:
+-        if order.status != "paid":
++        if order.status != "paid" or (since and order.created_at < since):
+             continue
+         summary["orders"] += 1
+         for item in order.items:
+diff --git a/tests/test_cli.py b/tests/test_cli.py
+index f3f9d9e..56062e1 100644
+--- a/tests/test_cli.py
++++ b/tests/test_cli.py
+@@ -30,6 +30,23 @@ class CliTest(unittest.TestCase):
+         self.assertEqual(code, 0)
+         self.assertTrue(out.startswith("sku,name,category,units,revenue\n"))
+ 
++    def test_report_since_includes_that_day(self):
++        code, out = run("report", "--since", "2026-03-02")
++        self.assertEqual(code, 0)
++        self.assertIn("Orders: 1", out)
++        self.assertIn("Revenue: 97.09", out)
++
++    def test_report_since_csv(self):
++        code, out = run("report", "--csv", "--since", "2026-03-03")
++        self.assertEqual(code, 0)
++        self.assertEqual(out, "sku,name,category,units,revenue\n")
++
++    def test_report_since_bad_date(self):
++        for bad in ["2026-13-01", "yesterday", "2026/03/02"]:
++            code, out = run("report", "--since", bad)
++            self.assertEqual(code, 1)
++            self.assertEqual(out, "")
++
+     def test_missing_data_dir(self):
+         code = main(["--data", "/nonexistent", "stock"], out=io.StringIO())
+         self.assertEqual(code, 1)
+diff --git a/tests/test_report.py b/tests/test_report.py
+index 1978a5c..42e4b16 100644
+--- a/tests/test_report.py
++++ b/tests/test_report.py
+@@ -26,6 +26,11 @@ class ReportTest(unittest.TestCase):
+         self.assertEqual(s["revenue_cents"], 13108)
+         self.assertEqual(s["by_sku"]["TEA-02"], {"units": 13, "revenue_cents": 10608})
+ 
++    def test_summary_since(self):
++        s = sales_summary(paid_orders(), since="2026-03-02")
++        self.assertEqual(s["orders"], 1)
++        self.assertEqual(s["revenue_cents"], 9709)
++
+     def test_text(self):
+         text = render_text(sales_summary(paid_orders()), make_catalog())
+         self.assertIn("Revenue: 131.08", text)

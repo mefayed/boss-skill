@@ -1,0 +1,9 @@
+error: /nonexistent/catalog.json: [Errno 2] No such file or directory: '/nonexistent/catalog.json'
+....error: quantity must be at least 1, got 0
+error: quantity must be at least 1, got -3
+..error: unknown SKU: NOPE-99
+.................................
+----------------------------------------------------------------------
+Ran 39 tests in 0.014s
+
+OK
