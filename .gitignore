@@ -1,6 +1,6 @@
-bench/
-tests/
-scripts/
-hooks/
+/bench/
+/tests/
+/scripts/
+/hooks/
 __pycache__/
 .DS_Store

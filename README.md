@@ -136,7 +136,7 @@ Small, local work stays in your chat. Bigger work goes to a builder subagent on 
 
 `rule` means the skill instructs it and the supervisor's review is the only check.
 
-- **Commit.** `rule` Builders never commit. Nothing blocks the command itself: the supervisor compares HEAD, refs and the diff after every dispatch, and treats a commit it did not make as a failed dispatch.
+- **Commit.** `rule` Builders never commit. Nothing blocks the command itself: the supervisor compares HEAD, refs and the diff after every dispatch, and reviews or unpicks any commit it did not make.
 - **Trust a green it didn't check.** `rule` Builder reports are claims. The supervisor reads the full diff and re-runs the gate. After a dispatched build, a fresh inspector model also tries the change the way you would, and replies PASS, FAIL or NOT CHECKED with the command and its output. Only the supervisor can accept a PASS.
 - **Spend your OpenAI credits unasked.** `rule` Codex joins only when you name it.
 - **Edit `~/.codex` without your yes.** `rule` If a Codex MCP server can act outside the sandbox, boss asks you what to do.
@@ -296,14 +296,14 @@ agents/inspector.md       tries a finished change like the user would, on scratc
 <details>
 <summary>No hook: what guards a builder</summary>
 
-Boss ships no hook and no script. Anthropic's plugin directory accepts neither from organizations that are not Verified, so the tripwire that used to block push, commit and other destructive Bash from builder agents is gone (it stays in the git history at commit `1913e26`, with the benchmark and the tests). What remains: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD and the content baseline and reads the full diff. A commit or push by a builder is caught after the fact, not prevented.
+Boss ships no hook and no script. Anthropic's plugin directory accepts neither from organizations that are not Verified, so the tripwire that used to block push, commit and other destructive Bash from builder agents is gone (it stays in the git history at commit `1913e26`, with the benchmark and the tests). What remains: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD, refs and the content baseline and reads the full diff. A commit, or a push that moves a tracking ref, is caught after the fact, not prevented. A `gh` or `curl` write is not caught.
 
 </details>
 
 <details>
 <summary>Read-only lanes: how far "read-only" goes</summary>
 
-The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. The `inspector` has a closed `tools:` list too. No lane has a guard on push or commit: each agent's own rules and the supervisor's HEAD, ref and stash compare are the checks. None of these is read-only enforcement: Bash stays live in every one of these lanes. A plugin cannot sandbox a shell, so an authenticated CLI can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
+The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. The `inspector` has a closed `tools:` list too. No lane has a guard on push or commit: each agent's own rules are the check, plus the supervisor's HEAD and ref compare after a dispatch (and a stash compare around the inspector). None of these is read-only enforcement: Bash stays live in every one of these lanes. A plugin cannot sandbox a shell, so an authenticated CLI can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
 
 </details>
 
