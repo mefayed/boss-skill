@@ -1,9 +1,0 @@
-error: /nonexistent/catalog.json: [Errno 2] No such file or directory: '/nonexistent/catalog.json'
-..error: not a date (want YYYY-MM-DD): '2026-13-01'
-error: not a date (want YYYY-MM-DD): 'yesterday'
-error: not a date (want YYYY-MM-DD): '2026/03/02'
-.......................................
-----------------------------------------------------------------------
-Ran 41 tests in 0.011s
-
-OK
