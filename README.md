@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/dev/assets/logo.svg" width="88" alt="boss logo">
+  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/1913e26bd64bd8b2b7065a02b6b0ed70941fcb31/assets/logo.svg" width="88" alt="boss logo">
 </p>
 
 <h1 align="center">boss</h1>
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/dev/assets/hero.svg" width="800" alt="A Claude Code session: /boss fix the export filter and add date range to search. boss routes the filter fix to haiku and the date range to sonnet, reviews the diff, and reports: done, 4 files, gates pass, 1 judgment call.">
+  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/1913e26bd64bd8b2b7065a02b6b0ed70941fcb31/assets/hero.svg" width="800" alt="A Claude Code session: /boss fix the export filter and add date range to search. boss routes the filter fix to haiku and the date range to sonnet, reviews the diff, and reports: done, 4 files, gates pass, 1 judgment call.">
 </p>
 
 <p align="center">
@@ -297,7 +297,7 @@ agents/inspector.md       tries a finished change like the user would, on scratc
 <details>
 <summary>No hook: what guards a builder</summary>
 
-Boss ships no hook and no script. Anthropic's plugin directory accepts neither from organizations that are not Verified, so the tripwire that used to block push, commit and other destructive Bash from builder agents is gone (it lives on in the `dev` branch, with the benchmark and the tests). What remains: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD and the content baseline and reads the full diff. A commit or push by a builder is caught after the fact, not prevented.
+Boss ships no hook and no script. Anthropic's plugin directory accepts neither from organizations that are not Verified, so the tripwire that used to block push, commit and other destructive Bash from builder agents is gone (it stays in the git history at commit `1913e26`, with the benchmark and the tests). What remains: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD and the content baseline and reads the full diff. A commit or push by a builder is caught after the fact, not prevented.
 
 </details>
 
