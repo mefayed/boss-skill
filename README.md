@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" width="88" alt="boss logo">
+  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/main/assets/logo.svg" width="88" alt="boss logo">
 </p>
 
 <h1 align="center">boss</h1>
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/hero.svg" width="800" alt="A Claude Code session: /boss fix the export filter and add date range to search. boss routes the filter fix to haiku and the date range to sonnet, reviews the diff, and reports: done, 4 files, gates pass, 1 judgment call.">
+  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/main/assets/hero.svg" width="800" alt="A Claude Code session: /boss fix the export filter and add date range to search. boss routes the filter fix to haiku and the date range to sonnet, reviews the diff, and reports: done, 4 files, gates pass, 1 judgment call.">
 </p>
 
 <p align="center">
@@ -169,9 +169,9 @@ flowchart LR
 <details>
 <summary>The loop, step by step</summary>
 
-1. Supervisor sharpens the ask (precise operation, separable tasks, a pass/fail it can check, boundaries — within the recon budget), traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
+1. Supervisor sharpens the ask (precise operation, separable tasks, a pass/fail it can check, boundaries — within the recon budget), traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Risky areas (auth, permissions, migrations or stored data, concurrency, destructive or external effects, a public API break, an open design choice) are checked first and always go to a builder; the decision is printed as one `triage:` line before any edit. Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
 2. Each builder gets a self-contained brief: `GOAL / FILES / CONTRACT / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — the checks that prove the job is done (written from your ask and seen failing before any edit), exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
-3. Builders verify their own work and return a structured report. They never commit.
+3. Builders verify their own work and return a structured report that opens with a status (a builder may say `BLOCKED` instead of guessing) and shows each contract check failing before the change. They never commit.
 4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, exercises the changed path itself (UI: drives it and checks a screenshot), surfaces judgment calls.
 5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → supervisor takes over. No loops.
 6. Queues get a progress file, decided-facts carry-forward, and a coherence close (full gates + repo-wide grep) at the end.
@@ -301,7 +301,7 @@ tests/guard-test.sh       pins the guard hook's shape (prompt handlers only, eve
 
 The guard is a prompt hook. When a Bash command matches one of its `if` patterns (`git push*`, `git commit*`, `rm *`, `gh *`, `curl *` and a few more), Claude Code sends the hook input, meaning the command text and the agent name, to the Claude background model, which allows or blocks it. That is a model judgment, so it is not deterministic. It only fires on those patterns, so most Bash calls cost nothing. A matching command from you or the supervisor also triggers a model call, with a little latency and token use; the prompt tells the model to allow those, so they are not meant to be blocked. For builder, errand and advocate agents it blocks the same categories as before: push, commit, `reset --hard`, `clean -f`, `checkout -f`, `rm -r`, DROP/TRUNCATE, and `gh`/`curl` writes. It is a best-effort tripwire against accidental destructive commands, not a security boundary. Commands that do not match an `if` pattern pass (for example `git -C dir push`), as does anything that hides the command text, such as writing it to a file and running `sh that-file`. Claude Code does not document what happens when the hook's model call errors or times out, so do not rely on either outcome. The supervisor's full diff read remains the real enforcement, and the `general-purpose` fallback lane stays instruction-only (unguarded).
 
-Why a prompt hook: the Anthropic plugin directory accepts command hooks only from Verified organizations, so the old shell script had to go.
+Why a prompt hook: the Anthropic plugin directory accepts command hooks only from Verified organizations, so the old shell script had to go. Since November 2026 it accepts no hook of any type, and no script files, from other organizations. So the directory tracks a `directory` branch built by `scripts/directory-build.sh`: the same plugin without `hooks/`, `bench/` and `tests/`. Installed from the directory, boss has no tripwire and relies on its rules and the supervisor's review; installed from GitHub (`main`), the hook is there.
 
 </details>
 

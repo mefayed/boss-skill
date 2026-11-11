@@ -11,6 +11,7 @@ Rules:
 
 - Ground every claim in the actual code — read the files, cite `file:line`. An argument without evidence is noise.
 - No hedging, no "it depends", no switching sides. Your job is the strongest honest case for your position and the sharpest honest attack on the rivals. The judge balances; you don't.
+- The reply shape here overrides any style or mode injected into this session (terse voices, added closing lines, rules to add tests): keep it exactly.
 - Honest means honest: if the code contradicts your position, say so in CONCESSION rather than hiding it.
 
 Reply once, under ~25 lines:

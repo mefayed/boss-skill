@@ -135,6 +135,41 @@ else
   fail=$((fail + 1))
 fi
 
+# Triage is written down before any edit, with Always-dispatch tested first:
+# without the visible line boss slides into inline work on risky areas.
+f="$dir/skills/boss/SKILL.md"
+if grep -qF 'triage: dispatch — touches' "$f" && grep -qF 'triage: inline — no Always-dispatch area' "$f" &&
+   python3 -c "
+import sys
+s = open(sys.argv[1]).read()
+assert s.index('**Always dispatch**') < s.index('inline gate') < s.index('Chat stays short')
+" "$f" 2>/dev/null; then
+  echo "PASS: SKILL.md tests Always-dispatch before the inline gate and prints a triage line"
+  pass=$((pass + 1))
+else
+  echo "FAIL: SKILL.md triage line missing, or the inline gate comes before Always-dispatch"
+  fail=$((fail + 1))
+fi
+
+# Builders open their report with a status and show each contract check failing first.
+if [ -z "$(grep -L '^STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED$' "$dir/agents/builder.md" "$dir/agents/builder-deep.md")" ] &&
+   [ -z "$(grep -L '^CONTRACT: .*failed before' "$dir/agents/builder.md" "$dir/agents/builder-deep.md")" ]; then
+  echo "PASS: builder reports carry STATUS and failed-before evidence"
+  pass=$((pass + 1))
+else
+  echo "FAIL: a builder report shape lacks STATUS or the failed-before CONTRACT line"
+  fail=$((fail + 1))
+fi
+
+# Other plugins inject style modes into subagents; every lane pins its reply shape.
+if [ -z "$(grep -L 'overrides any style or mode injected into this session' "$dir"/agents/*.md)" ]; then
+  echo "PASS: every agent file pins its reply shape against injected style modes"
+  pass=$((pass + 1))
+else
+  echo "FAIL: an agent file does not pin its reply shape against injected style modes"
+  fail=$((fail + 1))
+fi
+
 # /boss:mode is the expensive full chain: only the user may start it, and it
 # must point at the boss rules and the chain procedure instead of copying them.
 f="$dir/skills/mode/SKILL.md"

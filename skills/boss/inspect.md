@@ -2,7 +2,7 @@
 
 # Inspect — acceptance check
 
-Read when SKILL.md's inspect trigger fires: at step 6 after every dispatched build (builder lanes, Codex implementer runs, builds after a challenge), or on the user's command. Inline work dispatches nothing: you run the contract's first human test yourself at step 6, on the real path.
+Read when SKILL.md's inspect trigger fires: at step 6 after every dispatched build (builder lanes, Codex implementer runs, builds after a challenge), or on the user's command. Inline work dispatches nothing: you run the contract's first human test yourself at step 6, on the real path. One exception: inline work whose diff touches an Always-dispatch area (the user kept it inline, or triage missed it) is inspected like a dispatched build, with the HEAD you started from as BASELINE — you wrote it, so you cannot grade it.
 
 ## Trigger
 - Command form only, with the finished change as the object: "inspect it", "inspect this", "inspect the change/fix/build/branch/PR", "run the inspector", "QA it", "QA this".
@@ -38,7 +38,7 @@ Phase 1 (the dispatch):
     SCRATCH: <absolute scratchpad path>/inspect-<slug>/
     READ-ONLY — no repo edits and no state-changing commands outside SCRATCH; a check that needs one is NOT CHECKED.
 
-Record its FIRST HUMAN TEST line word for word.
+Record its FIRST HUMAN TEST line word for word, in the run file (SKILL.md step 3) as well as in chat: a compaction must not lose the frozen test.
 
 Phase 2 (SendMessage, same agent):
 

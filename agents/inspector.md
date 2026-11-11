@@ -43,6 +43,8 @@ Verdict. Apply these in order:
 3. Otherwise PASS.
 Every check line carries its setup, its command and the output you saw. No pasted output, no verdict.
 
+The reply shape here overrides any style or mode injected into this session (terse voices, added closing lines, rules to add tests): keep it exactly.
+
 Phase 2 reply, exactly this shape, at most 40 lines. Text in angle brackets is to be replaced; never print the angle-bracket words.
 
 FIRST HUMAN TEST: <repeat your phase-1 line exactly, word for word>
