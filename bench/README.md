@@ -34,12 +34,12 @@ The person who built this has many plugins, skills, hooks, MCP servers and an ou
 - `--strict-mcp-config` with no `--mcp-config`, so no MCP servers load.
 - `--settings '{"autoMemoryEnabled":false}'`, so there is no auto-memory.
 - `--no-session-persistence`.
-- `env -i` with only `HOME`, `PATH`, `USER`, `LOGNAME`, `TMPDIR`, `LANG` (and `ANTHROPIC_API_KEY` if you set one). Nothing from a parent shell or a parent Claude Code session leaks in.
+- `env -i` with only `HOME`, `PATH`, `USER`, `LOGNAME`, `TMPDIR`, `LANG`. Nothing from a parent shell or a parent Claude Code session leaks in.
 - `--permission-mode bypassPermissions`, so the agent can edit and run tests without prompts. This setting is the same in both conditions.
 
 None of this needs an API key. It works with a normal `claude` login (OAuth/keychain). Options that were tried and rejected:
 
-- `--bare` reads only `ANTHROPIC_API_KEY`.
+- `--bare` ignores the login and needs an API key.
 - A temp `CLAUDE_CONFIG_DIR` loses the login ("Not logged in").
 - `--safe-mode` still listed 25 user plugins in the session and kept the user's output style.
 

@@ -119,7 +119,6 @@ run_one() {  # task condition rep slot
   # env -i: nothing from the calling shell (e.g. a parent Claude Code session) leaks in.
   (cd "$work" && env -i HOME="$HOME" PATH="$PATH" USER="${USER:-}" LOGNAME="${LOGNAME:-}" \
     TMPDIR="${TMPDIR:-/tmp}" LANG="${LANG:-en_US.UTF-8}" \
-    ${ANTHROPIC_API_KEY:+"ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"} \
     "$CLAUDE_BIN" "$@" </dev/null >"$raw/transcript.jsonl" 2>"$raw/stderr.txt")
   code=$?
   wall=$(( $(date +%s) - t0 ))
