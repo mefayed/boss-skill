@@ -8,7 +8,6 @@
 
 <p align="center">
   <a href="https://github.com/mefayed/boss-skill/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/mefayed/boss-skill?style=flat-square&color=7C3AED"></a>
-  <a href="https://github.com/mefayed/boss-skill/actions/workflows/test.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/mefayed/boss-skill/test.yml?branch=main&style=flat-square&label=tests"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"></a>
   <img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square&logo=anthropic&logoColor=white">
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-success?style=flat-square">
