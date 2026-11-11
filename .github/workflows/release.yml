@@ -1,0 +1,21 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: release when plugin.json version has no tag yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(jq -r .version .claude-plugin/plugin.json)
+          gh release view "v$v" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "v$v" --repo "$GITHUB_REPOSITORY" --title "v$v" --generate-notes
