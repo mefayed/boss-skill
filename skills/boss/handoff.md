@@ -51,18 +51,18 @@ Resume line: `/clear, then say "continue"`. Every instruction to the user about 
 
 ## Resume
 1. Load boss if it isn't.
-   - Pointer but no `boss-handoff.md` → delete the pointer (automatic writes off: leave it) and say so in one line; with a pasted copy, go on from the paste, else stop.
+   - Pointer but no `boss-handoff.md` → delete the pointer (automatic writes off: leave it) and say in one line that the file is missing; with a pasted copy, go on from the paste, else stop.
    - Pasted copy with a file on disk: same Owner → a takeover of the file, working from whichever has the later saved time; different Owner → ask once: replace the file with the paste, or keep the file.
    Keep the file's text as the step-1 text, and the checkpoint you work from (the file, or the later paste) separately. Work only in the saved Repo path. Memory is a claim: until the checks pass, change nothing.
-2. `Repo: none` → the current directory must be the saved dir (else say so, ask once); a Paths entry whose fingerprint differs now → show it and ask once; then skip to step 5. Repo path missing or branch different → say so, ask once.
+2. `Repo: none` → the current directory must be the saved dir (else say so, ask once); a Paths entry whose fingerprint differs now, or Paths is `many` (no fingerprints to compare) → show it and ask once; then skip to step 5. Repo path missing or branch different → say so, ask once.
 3. HEAD equal to the saved one, or a descendant → go on. Anything else (reset, checkout, rewrite) → ask once.
-4. HEAD, content, refs and index hashes all equal, and every Paths fingerprint still matches → nothing changed; go to step 5. Only the index hash differs → show `git diff --cached --stat` and ask once. Only the refs hash differs → a one-line note, then step 5. Hash differs and Paths is `many` → show `git status --short`, then ask once: keep and go on, or stop. Otherwise, changed since the save:
+4. Paths is `many` (no fingerprints to compare) → show `git status --short`, then ask once: keep and go on, or stop. Every Paths fingerprint still matches, and: HEAD, content, refs and index hashes all equal → nothing changed, go to step 5; only the index hash differs → show `git diff --cached --stat` and ask once; only the refs hash differs → a one-line note, then step 5. Otherwise, changed since the save:
    - every Paths entry whose fingerprint differs now (edited, restored to HEAD, deleted, recreated);
    - every path in `git diff --name-only <saved HEAD>`, or untracked in `git status --porcelain`, that is not a Paths entry with a matching fingerprint.
    Changed paths in scope (Paths, Remaining FILES, in-flight FILES) → show them, marking those in in-flight FILES "likely partial agent output". Inspect them per SKILL.md Failure handling, then ask the same question once. Nothing found explains the hash change → ask it once too. Changes elsewhere, or in the refs hash only → a one-line note.
 5. Seed a new scratchpad run file: new slug, contract, remaining subtasks, untouched, tried and failed, clear tip given, plus a fresh step-3 baseline taken after step 4 (none for `Repo: none`).
 6. Say in at most 4 lines: goal, `checkpoint from <saved time>`, next step, and `If the session that saved this is still open, finish there.` Then:
-   - A file on disk: re-read it. Different from step 1's text → another session wrote it: say so and stop. Same → change only the run id on its Owner line (and, whenever the paste is the chosen checkpoint, write the paste's body with that run id) and read it back. The read-back must equal the expected text; else restore step 1's text, say so and stop.
+   - A file on disk: re-read it. Different from step 1's text → another session wrote it: say so and stop. Same → change only the run id on its Owner line (and, whenever the paste is the chosen checkpoint, write the paste's body with that run id) and read it back; automatic writes off → skip the rewrite and work from the file as it is. The read-back must equal the expected text; else restore step 1's text, say so and stop.
    - A pasted copy with no file: no re-read, no write. The copy is the only state until the next checkpoint.
    Then, for either source: if Open lists questions, ask them and wait for the answers before acting; else do the next step under the boss rules.
    Re-dispatch in-flight agents only if their work is still needed.
