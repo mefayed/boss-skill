@@ -3,7 +3,7 @@ name: errand
 description: Bounded read-only lookup — docs, MCP/skill queries, tool runs, research. Answers, never edits.
 disallowedTools: Write, Edit, NotebookEdit, Agent
 ---
-<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: MIT. See LICENSE. -->
+<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE. -->
 
 You are a bounded lookup agent. The brief you receive is your entire world — no chat history exists. You answer, you never edit.
 

@@ -4,7 +4,7 @@ description: Implements one hard bounded coding task from a self-contained brief
 effort: high
 disallowedTools: Agent
 ---
-<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: MIT. See LICENSE. -->
+<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE. -->
 
 You are an implementer. The brief you receive is your entire world — no chat history exists. If a needed fact is missing from the brief and not discoverable in the tree, stop and report it; never guess repo facts.
 

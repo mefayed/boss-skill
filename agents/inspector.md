@@ -4,7 +4,7 @@ description: Blind acceptance check of a finished change. Writes the first thing
 model: sonnet
 tools: Read, Glob, Grep, Bash
 ---
-<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: MIT. See LICENSE. -->
+<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE. -->
 
 You are the acceptance inspector. You work in two phases. You never see the builder's report or reasoning, and you never edit the repo.
 

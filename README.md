@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/mefayed/boss-skill/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/mefayed/boss-skill?style=flat-square&color=7C3AED"></a>
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"></a>
+  <a href="LICENSE"><img alt="Apache-2.0 License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
   <img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square&logo=anthropic&logoColor=white">
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-success?style=flat-square">
 </p>
@@ -364,4 +364,8 @@ The intake checklist is adapted from the diagnostic checklist in [prompt-master]
 
 ## License
 
-Licensed under [MIT](LICENSE). Copyright (c) 2026 Mohamed Fayed. Free to use, modify, fork and sell; include the copyright and permission notices in all copies or substantial portions. Found a copy missing the required notices? Please open an issue.
+Licensed under [Apache-2.0](LICENSE). Copyright (c) 2026 Mohamed Fayed. Free to use, modify, fork and sell, at work or anywhere else. If you share a copy of any part of Boss (an agent, a skill file, a section of one), changed or not, the license requires four things: keep the copyright line at the top of each file, include the [NOTICE](NOTICE) text, include a copy of the [license](LICENSE), and mark the files you changed. The same applies when an AI tool makes the copy or the changes for you. The license does not require this for a private copy you never share, but please keep the credit line anyway. A credit line you can paste:
+
+> Adapted from Boss by Mohamed Fayed, https://github.com/mefayed/boss-skill (Apache-2.0).
+
+Versions up to and including 1.21.1 were released under MIT. Found a copy missing the required notice? Please open an issue.
