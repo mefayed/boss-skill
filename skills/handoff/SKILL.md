@@ -4,7 +4,7 @@ description: Save unfinished boss work now so a fresh session picks it up after 
 argument-hint: [note | resume | copy]
 disable-model-invocation: true
 ---
-<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE.txt. -->
+Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE.txt.
 
 # Boss handoff
 
