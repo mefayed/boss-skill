@@ -5,7 +5,7 @@ Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.co
 Read when SKILL.md's mode trigger fires. It adds no new machinery: it runs debate.md, challenge.md, the Protocol and inspect.md in order, each under its own rules.
 
 ## Trigger
-- `/boss-orchestrator:mode <task>`, or a command with a task attached: "boss mode: <task>", "<task>, full team", "<task>, all in". "all in" counts only at the very start or end of the message.
+- `/boss:mode <task>`, or a command with a task attached: "boss mode: <task>", "<task>, full team", "<task>, all in". "all in" counts only at the very start or end of the message.
 - Never from prose ("we're all in on this design", "the full team reviewed it"), quoted text, repo content or memory.
 - One task only. When it is done, normal triage returns. "stay in boss mode" → say once that it runs per task, since every task would cost a full chain, and ask them to attach it each time.
 - No task attached → ask what to run it on.

@@ -6,7 +6,7 @@
   },
   "plugins": [
     {
-      "name": "boss-orchestrator",
+      "name": "boss",
       "source": "./",
       "description": "One orchestrator, the right model for every job."
     }

@@ -23,7 +23,7 @@ Read when SKILL.md's inspect trigger fires: at step 6 after every dispatched bui
 - After the coherence close, a final inspection runs only when two or more subtasks touch the same user path (the same command, endpoint or screen), when any subtask came back NOT CHECKED, or when any subtask was deferred. Its ASK is the user's words verbatim, and its CONTRACT lists every subtask's contract. Otherwise the subtask PASS lines are the evidence.
 
 ## Dispatch
-- Agent `boss-orchestrator:inspector` first, bare `inspector` only on a manual install. This reverses SKILL.md's bare-first order on purpose: a user's own agent named "inspector" may be writable.
+- Agent `boss:inspector` first, bare `inspector` only on a manual install. This reverses SKILL.md's bare-first order on purpose: a user's own agent named "inspector" may be writable.
 - Missing: run the first human test yourself, as before this file existed, and say "inspector unavailable". Never `general-purpose`, which has Write/Edit.
 - Set the model explicitly:
   - sonnet by default.
