@@ -118,7 +118,7 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 | `who can challenge?` | lists the models you can pick |
 | `debate A vs B, then challenge` | the debate's winner writes the plan, the losers check it |
 | `judge with astra` | puts that model in the judge seat of a debate or challenge (in a debate, if that model was arguing, Fable takes its place) |
-| `write me a prompt for cursor` / `improve this prompt` | hands off to [prompt-master](https://github.com/nidhinjs/prompt-master) if installed (optional) |
+| `write me a prompt for cursor` / `improve this prompt` | hands off to a prompt-writing skill if you have one installed (optional); otherwise boss writes it |
 
 </details>
 
@@ -128,7 +128,7 @@ Directives last for the session until you countermand them. Boss also remembers 
 
 Small, local work stays in your chat. Bigger work goes to a builder subagent on Haiku, Sonnet or Opus, each in its own isolated context, so your main chat stays lean. Before a decision that's expensive to undo, boss asks a Fable advisor. When an approach needs proof, it runs a debate across models. Name Codex, Gemini, Kimi, Qwen or a local model and it asks them for a second opinion too.
 
-- **Sharp asks, not rewritten ones.** Before routing, boss checks every request against a diagnostic checklist (after [prompt-master](https://github.com/nidhinjs/prompt-master)): the precise operation, the separable tasks, a pass/fail it can verify, and the boundaries. It stays within the normal recon budget and asks you nothing extra. A fault it can't pin down quickly goes to the builder to trace. Your wording stays authoritative: a sharpening that would change what you meant shows up as a one-line judgment call, never a silent change.
+- **Sharp asks, not rewritten ones.** Before routing, boss checks every request against a diagnostic checklist: the precise operation, the separable tasks, a pass/fail it can verify, and the boundaries. It stays within the normal recon budget and asks you nothing extra. A fault it can't pin down quickly goes to the builder to trace. Your wording stays authoritative: a sharpening that would change what you meant shows up as a one-line judgment call, never a silent change.
 - **Token efficiency.** Standing rules live in agent definitions, sent once per spawn and never repeated in briefs. Briefs are 6 lines. Reports are summaries. A bounce is a delta to a live agent, not a respawn. Escalation is bounded: one bounce, then the supervisor takes over.
 - **Right-sized models.** Six lanes (haiku → opus-deep), routed by total expected cost _including review and rework_. A likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default: localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat. Dispatch that buys no parallelism, specialization or context isolation costs a whole session for nothing.
 - **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
@@ -350,17 +350,13 @@ The plugin itself has **zero dependencies**: markdown only. Everything else is o
 
 | Tool | Unlocks | Install |
 | ---- | ------- | ------- |
-| playwright-cli | driving UI work through the changed interaction | `npm install -g playwright && npx playwright install chromium` |
+| playwright-cli | driving UI work through the changed interaction | `npm install -g @playwright/cli@latest` |
 | Codex CLI + plugin | the codex lane (outside implementer, advisor, debate advocate) | see [Optional: Codex as an extra lane](#optional-codex-as-an-extra-lane) |
 | any model CLI (Gemini, Kimi, Qwen, Cursor, Ollama…) | the outside lane (advisor, debate or challenge seat) | the vendor's own install, then log in once |
-| [prompt-master](https://github.com/nidhinjs/prompt-master) | copy-paste prompts for other tools (Cursor, Midjourney, GPTs…) on explicit ask | `git clone https://github.com/nidhinjs/prompt-master.git ~/.claude/skills/prompt-master` |
+| any prompt-writing skill | copy-paste prompts for other tools (Cursor, Midjourney, GPTs…) on explicit ask | install it as a Claude Code skill |
 | GitHub CLI (`gh`) | PR/issue steps in briefs that need it | `brew install gh` (macOS) / [cli.github.com](https://cli.github.com) |
 
 </details>
-
-## Acknowledgements
-
-The intake checklist is adapted from the diagnostic checklist in [prompt-master](https://github.com/nidhinjs/prompt-master) by nidhinjs (MIT). Ideas only; no prompt-master text is bundled.
 
 ## License
 
