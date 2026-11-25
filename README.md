@@ -89,7 +89,7 @@ debate it                     2–3 approaches argued on different models, a jud
 challenge it                  one model writes the plan, a stronger one checks it
 inspect it                    a fresh model tries the change the way you would
 /boss:mode <task>             the full chain for one task: debate, challenge, build, inspect
-/boss:handoff                 save unfinished work now (boss also saves on its own); /clear, then say "continue"
+/boss:handoff                 print a checkpoint of unfinished work to keep; after /clear, paste it back
 second opinion from codex     adds Codex as an extra advisor (only when you name it)
 ```
 
@@ -110,7 +110,7 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 | `sonnet writes, opus checks` | picks the team yourself — add more checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
 | `inspect it` / `QA it` | a fresh model tries the change the way you would, from your own words; also runs automatically after every dispatched build. On code boss didn't build this session it reports and offers the fix, it doesn't apply it |
 | `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you type it |
-| `/boss:handoff [note]` (or `handoff` / `save progress` / `about to compact` as a command once boss is loaded) | boss checkpoints unfinished work to auto-memory on its own: before a run's first edit and each dispatch, and at the end of every turn that leaves work unfinished. It checks the file on disk, then ends the message with **(handoff saved)** on its own line; the command saves right away, in any session. To pick up: /clear, then say "continue". The next session checks the checkpoint against the repo, shows you anything that changed, then picks up. One handoff per project and one writer at a time: another run never overwrites it unasked (`replace handoff` does), and two live sessions in one project can still race. It is deleted when its run finishes or you say `drop the handoff`. Unfinished work without **(handoff saved)** as the last line means the latest save is unconfirmed, so say `handoff` before you clear. Say `read-only` or `no handoff` and boss stops saving on its own for that session. Say `about to compact` before `/compact` and boss saves first. `handoff copy` prints the full state to paste back, the only route with auto-memory off. After a big finished run, boss may add a one-line `/clear` tip |
+| `/boss:handoff [note]` (or `handoff` / `save progress` / `about to compact` as a command once boss is loaded) | boss prints a checkpoint of your unfinished work in one code block: goal, what is done, next step, remaining subtasks, checks, failed approaches, open questions, the git HEAD and short file hashes. Nothing is saved anywhere, and boss never does this on its own. Keep the block. After `/clear`, paste it as your first message with `/boss` (or `/boss:handoff resume`). Boss checks the repo against it, shows you anything that changed, then picks up. After a big finished run, boss may add a one-line `/clear` tip |
 | `plan …, challenge it` | stops at the agreed plan instead of building it |
 | `who can challenge?` | lists the models you can pick |
 | `debate A vs B, then challenge` | the debate's winner writes the plan, the losers check it |
@@ -282,9 +282,9 @@ skills/boss/codex.md         Codex name resolution and run procedure, read only 
 skills/boss/debate.md        debate procedure, read only when a debate runs
 skills/boss/inspect.md       inspection procedure, read only when an inspection runs
 skills/boss/mode.md          full-chain procedure, read only when you ask for boss mode
-skills/boss/handoff.md       automatic checkpoint, resume and retire of unfinished runs, plus when to suggest /clear
+skills/boss/handoff.md       manual checkpoint to paste back, resume from a pasted one, plus when to suggest /clear
 skills/mode/SKILL.md         the /boss:mode command: loads boss and runs the full chain; never starts on its own
-skills/handoff/SKILL.md      the /boss:handoff command: loads boss, saves, resumes or copies a handoff; never starts on its own
+skills/handoff/SKILL.md      the /boss:handoff command: loads boss, prints a checkpoint or resumes from a pasted one; never starts on its own
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
@@ -331,7 +331,7 @@ Boss is markdown only. It has no server, makes no network calls of its own and c
 - **Subagents** run inside your Claude Code session, on your own Anthropic account, like any other subagent. They run the commands a task needs (tests, builds, searches) in your repo.
 - **The inspector** runs your app's real entry point (the CLI, localhost requests, playwright-cli if installed) against scratch copies of your repo. It runs on your own account like any other subagent.
 - **Codex and other model CLIs** run only when you name them. Boss then calls that vendor's CLI on your machine, which sends the prompt and the code it reads to that vendor, under your account and their terms. Without that ask, nothing goes to them.
-- **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets. Boss also checkpoints unfinished work there on its own: one `boss-handoff.md` holding the goal, next step, remaining subtasks, contract check commands, failed approaches, open questions, file paths with short content hashes and the git HEAD, plus a pointer line at the top of `MEMORY.md`. When you resume, its contents are read back into the new session. It is deleted when that run finishes or you say "drop the handoff". With auto-memory off, nothing is stored.
+- **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets. The handoff is separate: `/boss:handoff` only prints a checkpoint in chat for you to keep. Boss does not store or read it. Upgrading from 1.21–1.23: delete `boss-handoff.md` and its "Boss handoff pending" line from your project's memory folder; boss no longer reads or removes them.
 
 ## Requirements
 
