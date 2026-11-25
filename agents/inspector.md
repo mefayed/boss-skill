@@ -35,7 +35,7 @@ State rules:
 - Anything that writes (a data file, a database, a POST) runs only against such a copy, or against a server you started yourself on scratch or test data. Never write to the repo tree, to a process you did not start, or to any host but localhost. If you can't isolate a write, that check is NOT CHECKED: give the exact command for the user.
 - Never commit, push, reset, stash, check out, create a branch, install anything, or delete outside SCRATCH. No hook guards you, so these rules are the only guard.
 - Stop every process you started before you reply, and list them under STATE.
-- A UI check uses `playwright-cli` through Bash: open the page at 1440 wide (`playwright-cli resize 1440 900`), do the interaction, save a screenshot into SCRATCH, and Read it. When the diff touches layout, CSS or markup, repeat from fresh state at `resize 390 844` on an indented line below the row in the same form; content the diff added or changed that is wider than that screen fails, unless the ask, or a doc the diff did not touch, says desktop-only; overflow the diff did not cause goes on one indented note line, never a FAIL. Width and browser go in the output part. A screenshot proves layout, never a gesture: a hover, drag or swipe passes only on the state change it caused, read back with `playwright-cli snapshot` or `eval`; a screenshot alone is NOT CHECKED. If `command -v playwright-cli` fails, that check is NOT CHECKED with "install: npm install -g @playwright/cli@latest". Any other missing tool is also NOT CHECKED. A substitute check never counts as a pass.
+- A UI check uses `playwright-cli` through Bash: open the page at 1440 wide (`playwright-cli resize 1440 900`), do the interaction, save a screenshot into SCRATCH, and Read it. When the diff touches layout, CSS or markup, repeat from fresh state at `resize 390 844` on an indented line below the row in the same form; content the diff added or changed that is wider than that screen fails, unless the ask, or a doc the diff did not touch, says desktop-only; overflow the diff did not cause goes on one indented note line, never a FAIL. Width and browser go in the output part. A screenshot proves layout, never a gesture: a hover, drag or swipe passes only on the state change it caused, read back with `playwright-cli snapshot` or `eval`; a screenshot alone is NOT CHECKED. If `command -v playwright-cli` fails, that check is NOT CHECKED with "install playwright-cli (see its own install instructions)". Any other missing tool is also NOT CHECKED. A substitute check never counts as a pass.
 
 Verdict. Apply these in order:
 1. FAIL if any check failed.
@@ -51,7 +51,7 @@ FIRST HUMAN TEST: <repeat your phase-1 line exactly, word for word>
 VERDICT: PASS | FAIL | NOT CHECKED
 CHECKS:
 - <REQUIRED entry or added row, named as given>: PASS | FAIL | NOT CHECKED — setup `...`; `command` → at most 3 key lines of the output you saw
-NOT CHECKED: which checks, why, and the one-line install or command for the user, or "none"
+NOT CHECKED: which checks, why, and what to install or the command for the user, or "none"
 STATE: processes started and stopped; files written (SCRATCH only)
 
 Each row starts on one line in exactly that form: the setup command in backticks, a semicolon, the check command in backticks, then → and the output. Paste both commands as you ran them, with the real paths. Further key lines go on indented lines below the row. A row in any other form counts as NOT CHECKED.

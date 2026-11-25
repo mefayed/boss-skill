@@ -59,12 +59,9 @@ This repo is a Claude Code **plugin marketplace**. One command pair gets you the
 The bundled agents register on their own, no copying. On **Claude Desktop**, use **+ → Plugins → Add plugin** with the same repo.
 
 <details>
-<summary>Other ways to install (skills CLI, fully manual)</summary>
+<summary>Other ways to install (fully manual)</summary>
 
 ```bash
-# skills CLI (skill only; then copy agents by hand)
-npx skills add mefayed/boss-skill && cp agents/*.md ~/.claude/agents/
-
 # fully manual
 mkdir -p ~/.claude/skills/boss ~/.claude/agents
 cp skills/boss/*.md ~/.claude/skills/boss/
@@ -255,10 +252,9 @@ If OpenAI's Codex plugin is installed, boss can hand work to Codex in three role
 - **Timeouts stay timeouts.** A Codex job that times out is cancelled and reported as a timeout, never as a verdict.
 - **One deep pass.** Outside challenge mode it runs as a single deep pass in the background, in parallel with the Claude advisors. Never inside a fix-review-refix loop, where its 8-minute exploration buys nothing a Claude advisor doesn't deliver in 90 seconds.
 
-Not installed? Two steps:
+Not installed? Install the Codex CLI from its own instructions (github.com/openai/codex) and run `codex` once to log in, then:
 
 ```
-npm install -g @openai/codex        # the Codex CLI, then run `codex` once to log in
 /plugin marketplace add openai/codex-plugin-cc
 /plugin install codex@openai-codex
 ```
@@ -350,11 +346,11 @@ The plugin itself has **zero dependencies**: markdown only. Everything else is o
 
 | Tool | Unlocks | Install |
 | ---- | ------- | ------- |
-| playwright-cli | driving UI work through the changed interaction | `npm install -g @playwright/cli@latest` |
+| playwright-cli | driving UI work through the changed interaction | see playwright-cli's own install instructions |
 | Codex CLI + plugin | the codex lane (outside implementer, advisor, debate advocate) | see [Optional: Codex as an extra lane](#optional-codex-as-an-extra-lane) |
 | any model CLI (Gemini, Kimi, Qwen, Cursor, Ollama…) | the outside lane (advisor, debate or challenge seat) | the vendor's own install, then log in once |
 | any prompt-writing skill | copy-paste prompts for other tools (Cursor, Midjourney, GPTs…) on explicit ask | install it as a Claude Code skill |
-| GitHub CLI (`gh`) | PR/issue steps in briefs that need it | `brew install gh` (macOS) / [cli.github.com](https://cli.github.com) |
+| GitHub CLI (`gh`) | PR/issue steps in briefs that need it | [cli.github.com](https://cli.github.com) |
 
 </details>
 

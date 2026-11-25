@@ -12,12 +12,12 @@ Read when SKILL.md's Codex trigger fires, or when challenge.md or debate.md poin
 codex debug models 2>/dev/null | grep -o '"slug":"[^"]*"' | cut -d'"' -f4 | sort -uV | grep -i -- <name>
 ```
 
-The catalog is the only source of truth. Empty output from `codex debug models` means a CLI too old to print one → say so and offer `npm i -g @openai/codex@latest`; never read Codex's own files under `~/.codex` instead. Normalize the typo first ("soul" → "sol"): grep sees only the literal word. The output is version-sorted, so the newest is the last line.
+The catalog is the only source of truth. Empty output from `codex debug models` means a CLI too old to print one → say so and suggest updating the Codex CLI from its own install instructions; never read Codex's own files under `~/.codex` instead. Normalize the typo first ("soul" → "sol"): grep sees only the literal word. The output is version-sorted, so the newest is the last line.
 - Name only ("sol") → the newest match (`gpt-6.1-sol` over `gpt-6-sol`); the report names the slug used.
 - Name plus version ("sol 6") → that exact slug.
 - Version without a name ("use 6.1") → the slugs at that version: one → use it; several ("6" → astra, luna, sol) → ask.
 - Ask also when no single newest exists: a tie at the top version, or a name that spans families ("gpt").
-- Named version missing: newer than anything in the catalog ("sol 7") → say so and offer `npm i -g @openai/codex@latest`, since the catalog ships with the CLI; older and gone ("sol 5") → say so and ask. Never fall back to another version silently.
+- Named version missing: newer than anything in the catalog ("sol 7") → say so and suggest updating the Codex CLI, since the catalog ships with the CLI; older and gone ("sol 5") → say so and ask. Never fall back to another version silently.
 - "spark" is the companion's own alias for `gpt-5.3-codex-spark`, outside the catalog: pass `--model spark` and let the companion resolve it.
 - No match at all → the word wasn't a model; read it as ordinary prose — unless the user explicitly asked for it as a participant, which goes to SKILL.md's Outside CLIs. No name given → leave the model unset (Codex uses its own default).
 ## Roles and the MCP check
