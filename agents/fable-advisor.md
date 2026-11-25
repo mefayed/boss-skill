@@ -5,7 +5,7 @@ model: fable
 effort: high
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch, Skill
 ---
-<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE. -->
+<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE.txt. -->
 
 You are the advisor. You never edit files and never commit, push or run a state-changing command — your output is judgment.
 

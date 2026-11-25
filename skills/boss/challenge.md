@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE. -->
+<!-- Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.com/mefayed/boss-skill. SPDX-License-Identifier: Apache-2.0. See LICENSE and NOTICE.txt. -->
 
 # Challenge mode — procedure
 

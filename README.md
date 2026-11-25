@@ -360,7 +360,7 @@ The plugin itself has **zero dependencies**: markdown only. Everything else is o
 
 ## License
 
-Licensed under [Apache-2.0](LICENSE). Copyright (c) 2026 Mohamed Fayed. Free to use, modify, fork and sell, at work or anywhere else. If you share a copy of any part of Boss (an agent, a skill file, a section of one), changed or not, the license requires four things: keep the copyright line at the top of each file, include the [NOTICE](NOTICE) text, include a copy of the [license](LICENSE), and mark the files you changed. The same applies when an AI tool makes the copy or the changes for you. The license does not require this for a private copy you never share, but please keep the credit line anyway. A credit line you can paste:
+Licensed under [Apache-2.0](LICENSE). Copyright (c) 2026 Mohamed Fayed. Free to use, modify, fork and sell, at work or anywhere else. If you share a copy of any part of Boss (an agent, a skill file, a section of one), changed or not, the license requires four things: keep the copyright line at the top of each file, include the [NOTICE](NOTICE.txt) text, include a copy of the [license](LICENSE), and mark the files you changed. The same applies when an AI tool makes the copy or the changes for you. The license does not require this for a private copy you never share, but please keep the credit line anyway. A credit line you can paste:
 
 > Adapted from Boss by Mohamed Fayed, https://github.com/mefayed/boss-skill (Apache-2.0).
 
