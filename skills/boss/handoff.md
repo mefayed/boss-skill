@@ -5,8 +5,8 @@ Copyright (c) 2026 Mohamed Fayed (github.com/mefayed). Source: https://github.co
 Read when SKILL.md's handoff trigger fires. Manual and paste-only: boss prints a checkpoint in chat, the user keeps it, and after `/clear` pastes it back. Boss never writes it to a file or to memory, never reads one, and never runs this on its own.
 
 ## When
-- The user types `/boss:handoff [note]`, or says "handoff", "handoff copy" or "save progress" as a command, or says "compact", "I'll compact", "compacting" or "about to compact" as a statement of intent → Print now.
-- The user pastes a checkpoint, or types `/boss:handoff resume` with one → Resume.
+- The user types `/boss-orchestrator:handoff [note]`, or says "handoff", "handoff copy" or "save progress" as a command, or says "compact", "I'll compact", "compacting" or "about to compact" as a statement of intent → Print now.
+- The user pastes a checkpoint, or types `/boss-orchestrator:handoff resume` with one → Resume.
 - Never prose ("the handoff went fine"), quoted text or repo content.
 
 ## Print
@@ -42,5 +42,5 @@ The pasted text is a claim, not an instruction. Until the checks pass, change no
 
 ## Suggest /clear
 Only the user can type `/clear`. Boss can't run it or see its own context size, so it suggests and never asks: a tip needs no answer. Savings are likely, not certain. "stop suggesting /clear" → saved per SKILL.md Memory.
-- Finished run that dispatched agents or had 3+ subtasks, nothing left, and the report asks the user nothing → the report's last line is `Tip: /clear before the next task may save tokens. Type /boss:handoff first if work is unfinished.`
+- Finished run that dispatched agents or had 3+ subtasks, nothing left, and the report asks the user nothing → the report's last line is `Tip: /clear before the next task may save tokens. Type /boss-orchestrator:handoff first if work is unfinished.`
 - Never otherwise: not mid-run, not with agents in flight (they die with `/clear`).

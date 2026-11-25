@@ -53,8 +53,10 @@ This repo is a Claude Code **plugin marketplace**. One command pair gets you the
 
 ```
 /plugin marketplace add mefayed/boss-skill
-/plugin install boss@boss-skill
+/plugin install boss-orchestrator@boss-skill
 ```
+
+Upgrading from 1.x: the plugin id changed. Run `/plugin uninstall boss@boss-skill`, then `/plugin install boss-orchestrator@boss-skill`.
 
 The bundled agents register on their own, no copying. On **Claude Desktop**, use **+ → Plugins → Add plugin** with the same repo.
 
@@ -88,8 +90,8 @@ boss careful with tokens      one step down, advisor only if irreversible, batch
 debate it                     2–3 approaches argued on different models, a judge rules
 challenge it                  one model writes the plan, a stronger one checks it
 inspect it                    a fresh model tries the change the way you would
-/boss:mode <task>             the full chain for one task: debate, challenge, build, inspect
-/boss:handoff                 print a checkpoint of unfinished work to keep; after /clear, paste it back
+/boss-orchestrator:mode <task>             the full chain for one task: debate, challenge, build, inspect
+/boss-orchestrator:handoff                 print a checkpoint of unfinished work to keep; after /clear, paste it back
 second opinion from codex     adds Codex as an extra advisor (only when you name it)
 ```
 
@@ -109,8 +111,8 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 | `challenge it` | adds a check to any request: one model writes the plan, a stronger one checks it, a judge settles what's left (see below) |
 | `sonnet writes, opus checks` | picks the team yourself — add more checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
 | `inspect it` / `QA it` | a fresh model tries the change the way you would, from your own words; also runs automatically after every dispatched build. On code boss didn't build this session it reports and offers the fix, it doesn't apply it |
-| `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you type it |
-| `/boss:handoff [note]` (or `handoff` / `save progress` / `about to compact` as a command once boss is loaded) | boss prints a checkpoint of your unfinished work in one code block: goal, what is done, next step, remaining subtasks, checks, failed approaches, open questions, the git HEAD and short file hashes. Nothing is saved anywhere, and boss never does this on its own. Keep the block. After `/clear`, paste it as your first message with `/boss` (or `/boss:handoff resume`). Boss checks the repo against it, shows you anything that changed, then picks up. After a big finished run, boss may add a one-line `/clear` tip |
+| `/boss-orchestrator:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you type it |
+| `/boss-orchestrator:handoff [note]` (or `handoff` / `save progress` / `about to compact` as a command once boss is loaded) | boss prints a checkpoint of your unfinished work in one code block: goal, what is done, next step, remaining subtasks, checks, failed approaches, open questions, the git HEAD and short file hashes. Nothing is saved anywhere, and boss never does this on its own. Keep the block. After `/clear`, paste it as your first message with `/boss` (or `/boss-orchestrator:handoff resume`). Boss checks the repo against it, shows you anything that changed, then picks up. After a big finished run, boss may add a one-line `/clear` tip |
 | `plan …, challenge it` | stops at the agreed plan instead of building it |
 | `who can challenge?` | lists the models you can pick |
 | `debate A vs B, then challenge` | the debate's winner writes the plan, the losers check it |
@@ -283,8 +285,8 @@ skills/boss/debate.md        debate procedure, read only when a debate runs
 skills/boss/inspect.md       inspection procedure, read only when an inspection runs
 skills/boss/mode.md          full-chain procedure, read only when you ask for boss mode
 skills/boss/handoff.md       manual checkpoint to paste back, resume from a pasted one, plus when to suggest /clear
-skills/mode/SKILL.md         the /boss:mode command: loads boss and runs the full chain; never starts on its own
-skills/handoff/SKILL.md      the /boss:handoff command: loads boss, prints a checkpoint or resumes from a pasted one; never starts on its own
+skills/mode/SKILL.md         the /boss-orchestrator:mode command: loads boss and runs the full chain; never starts on its own
+skills/handoff/SKILL.md      the /boss-orchestrator:handoff command: loads boss, prints a checkpoint or resumes from a pasted one; never starts on its own
 agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
 agents/builder-deep.md    same contract at high reasoning effort
 agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
@@ -331,7 +333,7 @@ Boss is markdown only. It has no server, makes no network calls of its own and c
 - **Subagents** run inside your Claude Code session, on your own Anthropic account, like any other subagent. They run the commands a task needs (tests, builds, searches) in your repo.
 - **The inspector** runs your app's real entry point (the CLI, localhost requests, playwright-cli if installed) against scratch copies of your repo. It runs on your own account like any other subagent.
 - **Codex and other model CLIs** run only when you name them. Boss then calls that vendor's CLI on your machine, which sends the prompt and the code it reads to that vendor, under your account and their terms. Without that ask, nothing goes to them.
-- **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets. The handoff is separate: `/boss:handoff` only prints a checkpoint in chat for you to keep. Boss does not store or read it. Upgrading from 1.21–1.23: delete `boss-handoff.md` and its "Boss handoff pending" line from your project's memory folder; boss no longer reads or removes them.
+- **Memory.** When you state a standing preference ("keep reports short"), boss saves it to Claude Code's own auto-memory on your machine. It offers a one-line `~/.claude/CLAUDE.md` addition and writes it only if you say yes. It never stores secrets. The handoff is separate: `/boss-orchestrator:handoff` only prints a checkpoint in chat for you to keep. Boss does not store or read it. Upgrading from 1.21–1.23: delete `boss-handoff.md` and its "Boss handoff pending" line from your project's memory folder; boss no longer reads or removes them.
 
 ## Requirements
 

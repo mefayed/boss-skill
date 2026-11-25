@@ -1,6 +1,6 @@
 ---
 name: mode
-description: Boss at full strength for one task — debate the options, challenge the winning plan, build it, then have a fresh model inspect the result. Runs only when the user types /boss:mode.
+description: Boss at full strength for one task — debate the options, challenge the winning plan, build it, then have a fresh model inspect the result. Runs only when the user types /boss-orchestrator:mode.
 argument-hint: [task]
 disable-model-invocation: true
 ---

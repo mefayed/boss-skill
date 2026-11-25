@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Print a checkpoint of unfinished boss work in chat to keep and paste back after /clear, or resume from a pasted one. Runs only when the user types /boss:handoff.
+description: Print a checkpoint of unfinished boss work in chat to keep and paste back after /clear, or resume from a pasted one. Runs only when the user types /boss-orchestrator:handoff.
 argument-hint: [note | resume]
 disable-model-invocation: true
 ---
