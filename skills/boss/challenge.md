@@ -10,11 +10,11 @@ Read only after SKILL.md's gate passed. Debates never need this file.
 - Named: "<A> writes, <B> checks" or "<A> writes, <B> and <C> check"; "<C> judges" means "judge with <C>". "writer <A>, checker(s) <B>[ and <C>], judge <D>" reads the same, only with the role word directly before a model name. Older forms still work: "X challenge Y" (Y writes, X checks) and chains "A→B→C" / "A, then B, then C" (A writes). Unclear → ask who writes. Same model as writer and checker → ask once: `<x> checking its own plan shares its blind spots — keep it, or pick another checker?`; the answer wins, and each role is its own separate dispatch. The judge in another role → ask, as below.
 - "Debate … then challenge": run the debate first; the winning advocate's model writes the winning option, the other advocates check it, and the debate judge judges again (no menu).
 - No names → auto seats, tiered by SKILL.md's own triage. The checker always outranks the writer (haiku < sonnet < opus < fable), and the judge is never a writer or checker. Fable judges unless it's the checker.
-  - Simple (passes the inline gate): first ask `This looks small — I'd just do it. Challenge anyway?`; yes → haiku writes, sonnet checks, fable judges; no → the normal inline flow.
+  - Simple (passes the inline gate): the user asked for it, so run it without asking whether to — haiku writes, sonnet checks, fable judges — and the setup line says `This looks small; challenging it as you asked. Say "skip" to build straight away.`; that answer (or "just build it") → the normal inline flow.
   - Normal (everything else): sonnet writes, opus checks, fable judges.
   - Hard (SKILL.md's Always-dispatch list): sonnet writes, fable checks, opus judges.
 - The user names one seat → only that seat changes; fill the rest keeping the checker above the writer and the judge apart. The user's own picks break these rules → say so once, then run them as given (never a judge who also writes or checks). No model left that outranks the named writer (e.g. fable writes) → ask: pick a checker, or accept an equal or weaker one.
-- Fable unavailable → opus judges and the seats step down a notch as needed so the checker still outranks the writer (e.g. haiku writes, sonnet checks). Never drop the judge.
+- Fable unavailable (SKILL.md Lanes' Fable rule) → opus judges and the seats step down a notch as needed so the checker still outranks the writer (e.g. haiku writes, sonnet checks). Never drop the judge.
 - Codex and outside models are never auto-picked. Naming a seat or judge is the opt-in; memory never is. "claude only" drops every non-Claude seat and judge, and says so in one line. Naming a judge never moves fable into a checker seat.
 - Menu only when asked ("who can challenge?", "list models"): show it, call nobody, wait for a pick.
   `Pick who writes and who checks, e.g. "sonnet writes, opus checks". Claude: fable, opus, sonnet, haiku. Codex (your catalog; access not verified; spends OpenAI credits): <slugs>. Or name an outside CLI.`
@@ -26,7 +26,7 @@ Read only after SKILL.md's gate passed. Debates never need this file.
 
 - Blind, everyone: relabel each reply once on arrival (Writer, Checker 1/2…, Judge; the seat's own name, self-references and other seat-identifying model or vendor names become labels; names that are the plan's subject stay), then file, brief and relay only the relabeled text. Briefs name roles, never models or scratchpad paths. Check FACTS and the question once for seat-identifying names. No file holds the label→model map: it is the setup line and your report; "show me the discussion" relabels back at display time. Chat messages to the user keep real names; seats never see chat.
 - Boss keeps `<scratchpad>/challenge-<slug>/`: `plan-v<N>.md` (the writer's full plan, relabeled), `ledger.md` (the ids, internal only) and `transcript.md` (every relabeled reply, shown on "show me the discussion"). Raw captures (outside-clis.md files, Codex job logs) stay outside this folder and are never named in a brief. Only the writer changes plan content.
-- Every brief, every turn and every backend, is closed: the question, FACTS, the current version in full, the change log since this seat's last turn, the open ledger, the seat's role and reply shape, and "read-only; verify only what the plan touches." Checker briefs add: "Your job is to find problems. Assume there is at least one flaw; find it."
+- Every brief, every turn and every backend, is closed: the question, FACTS, the current version in full, the change log since this seat's last turn, the open ledger, the seat's role and reply shape, and "read-only; verify only what the plan touches." No brief says what not to flag, how severe a finding may be, or that a choice is settled unless the user settled it. Checker briefs add: "Your job is to try to break the plan. If it holds, show what you checked and the risk that remains."
 
 ## Calls
 
@@ -90,6 +90,7 @@ RESIDUAL RISK: <biggest remaining risk>   (required with AGREE)
 ## Build
 
 - The request includes a build task → on full agreement go straight to Protocol (Intake → Dispatch from the final plan; normal review and verify), with no extra question. Pause for the user on a judge-decided, failed-seat, partial-lap or unresolved outcome, or when the plan has destructive, external or irreversible effects.
+- The build's CONTRACT and FILES come from the agreed plan version. A version that applies judge rulings, and anything built beyond the plan, is reported as not checked by the seats, never as checked.
 - "plan …" or no build task → stop at the plan.
 
 ## Messages

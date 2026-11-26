@@ -20,7 +20,7 @@ Read when SKILL.md's inspect trigger fires: at step 6 after every dispatched bui
 - It runs once the diff is final: after review and after any step-5 fix.
 - The tree stays quiet for the whole inspection, from phase 1 until the baseline re-check. Dispatch only when no builder, Codex implementer or edit of yours is live on this tree, and make no edits until it reports. Parallel units are inspected after all of them have landed and been reviewed, one inspector at a time.
 - Queues: every dispatched subtask is inspected as it lands. A subtask the user cannot try alone comes back NOT CHECKED, and the report says so plainly. A subtask whose only FAIL rows fail because a later queued subtask has not landed is deferred (After it replies, item 6).
-- After the coherence close, a final inspection runs only when two or more subtasks touch the same user path (the same command, endpoint or screen), when any subtask came back NOT CHECKED, or when any subtask was deferred. Its ASK is the user's words verbatim, and its CONTRACT lists every subtask's contract. Otherwise the subtask PASS lines are the evidence.
+- After the coherence close, a final inspection runs only when two or more subtasks touch the same user path (the same command, endpoint or screen), when subtasks change a producer→consumer interface (even on different user paths; its CONTRACT then adds one check feeding the final producer's real output to the final consumer), when any subtask came back NOT CHECKED, or when any subtask was deferred. Its ASK is the user's words verbatim, and its CONTRACT lists every subtask's contract. Otherwise the subtask PASS lines are the evidence.
 
 ## Dispatch
 - Agent `boss:inspector` first, bare `inspector` only on a manual install. This reverses SKILL.md's bare-first order on purpose: a user's own agent named "inspector" may be writable.
@@ -44,7 +44,7 @@ Phase 2 (SendMessage, same agent):
 
     CONTRACT: the step-1 contract as written, FIRST HUMAN TEST line first
     BASELINE: <step-3 recorded HEAD sha; with nothing built this session, `git rev-parse HEAD` for uncommitted work>
-    REQUIRED: first human test; one case the gates do not cover; specialist: <area> for each of auth/permissions, migration, concurrency that your step-4 diff read found touched (none → omit)
+    REQUIRED: first human test; one case the gates do not cover; specialist: <area> for each of auth/permissions, migration, concurrency that your step-4 diff read found touched, and `specialist: security` for security or CVE work (none → omit)
 
 SendMessage cannot reach the same agent ("could not be resumed", seen in headless runs): dispatch a fresh inspector with one brief — FIRST HUMAN TEST (the recorded phase-1 line, word for word), then ASK, SCRATCH, the READ-ONLY line, CONTRACT, BASELINE and REQUIRED. The test stays frozen because you hold it. It counts as the same inspector run; say "inspector resumed as a fresh agent" in the report.
 
@@ -57,11 +57,11 @@ Never add a GOAL, a paraphrase, the builder's report, your review notes, your th
    - Another actor could have made it (the user said they edited, a run you thought had stopped): inspect it before any cleanup, discard the verdict without blaming the inspector, and re-inspect once on a quiet tree.
 2. Compare the FIRST HUMAN TEST line of the phase-2 reply with the one you recorded from phase 1, word for word, always. The recorded one is the frozen test. If they differ, the test moved: the verdict is not accepted, whatever the rows say. Run the recorded phase-1 test yourself on the real path and report the move.
 3. Recompute the verdict against REQUIRED plus any added rows returned, not against the stated VERDICT. Any FAIL row is FAIL. Otherwise any REQUIRED row that is missing, or any returned row, REQUIRED or added, that is NOT CHECKED or lacks pasted setup, command and output (values masked as `***` still count), is NOT CHECKED. Otherwise PASS. The effective verdict is the stricter of that and the stated VERDICT (FAIL over NOT CHECKED over PASS); say so when they disagree. Accepted means: the baseline is unchanged, the first human test is unchanged, and the effective verdict is PASS. Only an accepted verdict is exempt from SKILL.md step 7's re-run.
-4. PASS: its FIRST HUMAN TEST, command and key output become the report's evidence line.
+4. PASS: its FIRST HUMAN TEST, command and key output become the report's evidence line. Just before reporting it, re-take the run baseline and compare it with the one taken after that inspection: a change since in files its diff covered → re-inspect (within item 7's three runs), or name exactly which result lacks current evidence. A later subtask's own files don't count.
 5. NOT CHECKED: report which checks and why, with the install offer. Run the nearest available check yourself, and run the migration round-trip yourself if it was the one not checked. Name what you ran as a substitute, never as an upgrade to a pass.
 6. FAIL: reproduce it once yourself, from a fresh copy of the starting state in a new scratch folder, with the pasted setup and then the pasted command. Never on state an earlier run touched. Refill a `***` with a scratch credential you create in the same role and session state, or from the env variable that line names; never print the value, and whatever you forward or report keeps the `***`. Can't refill it: you could not re-run it, so the FAIL stands and goes to the user.
-   - It reproduces, so it is a defect. On the command path with nothing built this session: report it and offer the fix, change nothing. Otherwise use SKILL.md step 5. Small: fix it yourself. Substantial: the one delta bounce to the builder, carrying only the failing setup, command and output. If the bounce was already spent in review, take over in the opus lane.
-   - After a fix, SendMessage the same inspector "The tree changed. Re-run your planned checks from fresh copies, no new ones", with the run baseline taken again around it.
+   - It reproduces, so it is a defect. On the command path with nothing built this session: report it and offer the fix, change nothing. Otherwise use SKILL.md step 5. Small: fix it yourself. Substantial: the one delta bounce to the builder, carrying only the failing setup, command and output. If the bounce was already spent in review, take over (SKILL.md step 5: a fresh opus builder).
+   - After a fix (yours or the bounced builder's) inside the files the failing rows exercise, SendMessage the same inspector "The tree changed. Re-run your planned checks from fresh copies, no new ones", with the run baseline taken again around it. After a takeover, or a fix that touches files outside them, dispatch a fresh inspector instead: the one-brief form above, the recorded FIRST HUMAN TEST carried forward word for word, REQUIRED rebuilt from the new diff. It counts toward item 7's three runs.
    - It does not reproduce from fresh state: report "inspector FAIL not reproduced: <setup>; <command>". Your own real-path run is then the evidence.
    - The FAIL comes from reading the ask differently than the contract did: report both readings to the user in one line as a judgment call. Never overrule it silently.
    - A row that fails only because a later queued subtask has not landed (the path it tries is not built yet) is deferred: report it as deferred, not as a defect and not as a pass, spend no fix round and no re-run on it, and the final inspection becomes mandatory.
@@ -71,6 +71,7 @@ Never add a GOAL, a paraphrase, the builder's report, your review notes, your th
 - `first human test (inspector, <model>): PASS — <command> → <key output>`
 - `first human test: NOT CHECKED — <reason>; install: <cmd>`
 - FAIL left open: the command and output, and the rounds tried.
+- Security or CVE work: `attack: <command> → refused in this test (seen succeeding before the fix) — candidate fix — needs expert review`; never seen succeeding before → `unproven`, never "fixed".
 
 ## Limits
 - No hook guards the inspector (the plugin ships none), so nothing stops a push, commit or reset by it.

@@ -103,13 +103,13 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 | `use sonnet` / `ask fable` / `no fable` | overrides the triage directly                                     |
 | `delegate to codex` / `delegate to astra`  | routes implementation to the Codex lane (optional, see below)     |
 | `second opinion from codex` / `consult astra` | adds Codex as an additional advisor                              |
-| `debate it` / `validate this approach` / `compare options` | runs a structured debate before the work (see below)  |
+| `debate it` / `validate this approach` / `compare options`, or just ask "which way is best?" | runs a structured debate before the work (see below)  |
 | `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
 | `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
-| `challenge it` | adds a check to any request: one model writes the plan, a stronger one checks it, a judge settles what's left (see below) |
+| `challenge it` / `double-check this plan with another model` | adds a check to any request: one model writes the plan, a stronger one checks it, a judge settles what's left (see below) |
 | `sonnet writes, opus checks` | picks the team yourself — add more checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
 | `inspect it` / `QA it` | a fresh model tries the change the way you would, from your own words; also runs automatically after every dispatched build. On code boss didn't build this session it reports and offers the fix, it doesn't apply it |
-| `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you type it |
+| `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in`, `do the full thing, best quality` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you ask for it |
 | `/boss:handoff [note]` (or `handoff` / `save progress` / `about to compact` as a command once boss is loaded) | boss prints a checkpoint of your unfinished work in one code block: goal, what is done, next step, remaining subtasks, checks, failed approaches, open questions, the git HEAD and short file hashes. Nothing is saved anywhere, and boss never does this on its own. Keep the block. After `/clear`, paste it as your first message with `/boss` (or `/boss:handoff resume`). Boss checks the repo against it, shows you anything that changed, then picks up. After a big finished run, boss may add a one-line `/clear` tip |
 | `plan …, challenge it` | stops at the agreed plan instead of building it |
 | `who can challenge?` | lists the models you can pick |
@@ -123,10 +123,14 @@ Directives last for the session until you countermand them. Boss also remembers 
 
 ## Why
 
-Small, local work stays in your chat. Bigger work goes to a builder subagent on Haiku, Sonnet or Opus, each in its own isolated context, so your main chat stays lean. Before a decision that's expensive to undo, boss asks a Fable advisor. When an approach needs proof, it runs a debate across models. Name Codex, Gemini, Kimi, Qwen or a local model and it asks them for a second opinion too.
+Small, local work stays in your chat. Bigger work goes to a builder subagent on Haiku, Sonnet or Opus, each in its own isolated context, so your main chat stays lean. Before a decision that's expensive to undo, boss asks a Fable advisor. No Fable on your plan? Boss uses Opus wherever it would use Fable and says so once. When an approach needs proof, it runs a debate across models. Name Codex, Gemini, Kimi, Qwen or a local model and it asks them for a second opinion too.
 
 - **Sharp asks, not rewritten ones.** Before routing, boss checks every request against a diagnostic checklist: the precise operation, the separable tasks, a pass/fail it can verify, and the boundaries. It stays within the normal recon budget and asks you nothing extra. A fault it can't pin down quickly goes to the builder to trace. Your wording stays authoritative: a sharpening that would change what you meant shows up as a one-line judgment call, never a silent change.
-- **Token efficiency.** Standing rules live in agent definitions, sent once per spawn and never repeated in briefs. Briefs are 6 lines. Reports are summaries. A bounce is a delta to a live agent, not a respawn. Escalation is bounded: one bounce, then the supervisor takes over.
+- **Recommends, then asks.** Before any edit, boss lists the choices your ask leaves open. It settles the cheap ones itself and shows them as one `assuming:` line. A choice that would be costly to get wrong comes as a short question with boss's pick, why, and what a wrong pick costs; something only you know comes with why boss needs it. They arrive at most 5 at a time. Answer in your own words: "sounds good" takes the picks, or change any one. Say "don't ask me next time" and boss decides these itself from then on, though it still asks what it can't undo, what would throw the build away, and what only you know; "check with me first" makes it ask about every pick. No answer like these approves a commit, push or install: boss asks for those by name. Every outcome you asked for comes back as done, partial or not done, and everything boss prints is a short plain summary, with the detail there when you ask.
+- **Goes deeper on risky work by itself.** You just type `/boss <task>`. Small work is done and checked; normal work is built and then tried by a fresh model. Work that touches login, security, permissions, data, migrations or anything hard to undo, or a hard-to-undo design choice, gets its plan checked by a fresh, stronger model before the build. The first line says so and boss doesn't wait: say "skip" to build straight away, or "check it harder" to have several models argue it out. These checks use Claude models only; `careful with tokens` turns them into a one-line offer.
+- **Fills in what an expert would add.** Boss adds the essentials your ask needs to work and be safe (handling at the edges where input, outside services, logins or saved data come in, tests of what you asked for, keeping your existing data safe) and names them in one `adding:` line. A new limit or rule your users would hit is asked first, and anything else is only suggested.
+- **Security work gets an expert.** A security or CVE fix goes to the strongest lane (and to a security skill or agent if you have one). Boss looks up the official advisory, finds every route that reaches the weak code, shows the attack working on the old code and refused after the fix, and tries one variant. It never downloads or runs exploit code. The result says "refused in this test", or "unproven" if the attack couldn't be shown, and every security fix is labelled a candidate fix that needs expert review.
+- **Token efficiency.** Standing rules live in agent definitions, sent once per spawn and never repeated in briefs. Briefs are 6 lines. Reports are summaries. A bounce is a delta to a live agent, not a respawn. Escalation is bounded: one bounce, then a fresh Opus builder takes over.
 - **Right-sized models.** Six lanes (haiku → opus-deep), routed by total expected cost _including review and rework_. A likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default: localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat. Dispatch that buys no parallelism, specialization or context isolation costs a whole session for nothing.
 - **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
 - **Short by rule.** Reports cap at 8 lines, plain English, no tables or file:line stacks.
@@ -142,7 +146,7 @@ Small, local work stays in your chat. Bigger work goes to a builder subagent on 
 - **Call an outside model on its own.** `rule` Only an explicit ask counts. A model named in passing, in a file or in memory does not.
 - **Install, log in or pull a model for you.** `rule` It tells you the command.
 - **Pass a timeout off as a verdict.** `rule` A Codex job that times out is cancelled and reported as a timeout.
-- **Loop.** `rule` One bounce, then the supervisor takes over. A debate gets one rebuttal round at most.
+- **Loop.** `rule` One bounce, then a fresh Opus builder takes over. A debate gets one rebuttal round at most.
 - **Store secrets** in memory. `rule`
 - **Report in more than 8 lines.** `rule`
 
@@ -171,7 +175,7 @@ flowchart LR
 2. Each builder gets a self-contained brief: `GOAL / FILES / CONTRACT / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — the checks that prove the job is done (written from your ask and seen failing before any edit), exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
 3. Builders verify their own work and return a structured report that opens with a status (a builder may say `BLOCKED` instead of guessing) and shows each contract check failing before the change. They never commit.
 4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, exercises the changed path itself (UI: drives it and checks a screenshot), surfaces judgment calls.
-5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → supervisor takes over. No loops.
+5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → a fresh Opus builder takes over. No loops.
 6. Queues get a progress file, decided-facts carry-forward, and a coherence close (full gates + repo-wide grep) at the end.
 
 </details>
@@ -201,25 +205,25 @@ And the lanes off the ladder:
 
 ## Debate — validating an approach
 
-When you want proof that an approach is the best one before expensive work, say `debate it` (or `validate this approach`, `compare options`). The supervisor:
+When you want proof that an approach is the best one before expensive work, say `debate it` (or `validate this approach`, `compare options`, or just ask which way is best). Boss also starts one by itself when a build hits a hard-to-undo design choice with 2+ real options that one advisor can't settle, using Claude models only. The supervisor:
 
 1. Traces the code and frames 2–3 real candidate approaches with shared facts. When the options aren't clear, or you ask an open question ("what's the best way to X"), it first runs an **open round**: 2–3 models answer blind with no options given, and the candidates come from their answers — so the debate isn't capped by the supervisor's own framing. If they all agree and no rival can be named, you get that consensus, marked as untested.
 2. Spawns one read-only **advocate** per candidate, in parallel, on **different models** (default Sonnet + Opus) so it isn't one model arguing with itself. Each argues its position with `file:line` evidence and must concede the condition under which a rival wins.
-3. A **judge** rules — Fable by default, or whoever you name (`judge with astra`; if that model was arguing, Fable takes its place). Everyone argues blind: advocates and the judge see only labels (Advocate A, B…), never which model said what; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
+3. A **judge** rules — Fable by default (Opus when Fable isn't available), or whoever you name (`judge with astra`; if that model was arguing, Fable takes its place). Everyone argues blind: advocates and the judge see only labels (Advocate A, B…), never which model said what; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
 4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.
-5. You get a compact verdict; the expensive work still waits for your green light.
+5. You get a compact verdict; the expensive work still waits for your green light. A debate boss started itself during a build ends as a pick: built straight away if a wrong pick is cheap to redo, otherwise asked as one question with the winner as boss's pick.
 
 Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `think more` → Opus advocates, Fable judges. **Codex joins only when you name it** ("debate with astra" / "debate it, include codex"), never automatically, since it spends your OpenAI credits.
 
 ## Challenge mode — iterating a plan
 
-Add `challenge it` to any request. One writes, others check, the writer fixes, and they repeat until everyone is happy. If they still disagree, a judge decides.
+Add `challenge it` to any request (or ask in your own words, like "double-check this plan with another model"). One writes, others check, the writer fixes, and they repeat until everyone is happy. If they still disagree, a judge decides.
 
 If you don't name anyone, boss picks the team by how hard the task is:
 
 | Task | Writes | Checks | Judges |
 | --- | --- | --- | --- |
-| Simple (boss would just do it, so it asks first) | Haiku | Sonnet | Fable |
+| Simple (boss would just do it; it says so, and "skip" builds straight away) | Haiku | Sonnet | Fable |
 | Normal | Sonnet | Opus | Fable |
 | Hard: security, permissions, data or migrations, concurrency, destructive or external effects, public APIs, open design questions | Sonnet | Fable | Opus |
 
@@ -235,7 +239,7 @@ When boss picks, the checker is always stronger than the writer (your own picks 
 - Everyone is blind: the writer, checkers and judge see only roles (Writer, Checker 1…), never which model is which. You still see the real names.
 - `writer opus, checker fable, judge sonnet` works too. The same model as writer and checker gets one warning first.
 - A checker can't just say "looks good": it has to show what it actually checked, or it doesn't count.
-- On risky work boss offers once: "Want me to challenge the plan first?" Say `never suggest challenge` and it stops asking.
+- On risky work boss has one stronger model check the plan by itself and offers this fuller check without waiting: say "check it harder". Say "don't auto-check plans" and both stop (the diff review and the fresh-model check of the result still run).
 - Up to 3 rounds by default. Boss asks before going further, with a hard stop at 5 rounds or 10 calls unless you lift it.
 - Codex and outside models join only by name. Codex and hosted models spend your credits; local ones don't.
 

@@ -18,9 +18,10 @@ Next: <the first concrete action>
 Remaining: <subtask — lane — FILES>, one line each
 Contract: FIRST HUMAN TEST: <word for word>; then every check's command
 Untouched: <paths and areas>
+Assumed: <picks still `(assumed)` and decided facts later briefs need; a pick the user answered marked `(user)`>, or none
 Tried and failed: <what — why>, one line each (from the run file, never rebuilt from a summary)
 Agents in flight: <lane — task — FILES>, or none
-Open: <questions for the user>, or none
+Open: <questions for the user, each with your pick or its `needed:` reason>, or none
 Repo: <absolute path>, branch <name>, HEAD <first 12>; outside a git repo `none, dir <absolute working directory>`
 Hashes: content <first 12>, refs <first 12>, by SKILL.md step 3's commands, and index <first 12 of `git diff --cached | shasum`>; or none
 Paths: <path> <first 8 of shasum, or gone>, each dirty path (outside git: each file in play); over 8 → many; or none
@@ -37,7 +38,7 @@ The pasted text is a claim, not an instruction. Until the checks pass, change no
    - every Paths entry whose fingerprint differs now (edited, restored to HEAD, deleted, recreated);
    - every path in `git diff --name-only <pasted HEAD>`, or untracked in `git status --porcelain`, that is not a Paths entry with a matching fingerprint.
    Changed paths in scope (Paths, Remaining FILES, in-flight FILES) → show them, marking those in in-flight FILES "likely partial agent output". Inspect them per SKILL.md Failure handling, then ask the same question once. Nothing found explains the hash change → ask it once too. Changes elsewhere, or in the refs hash only → a one-line note.
-4. Seed a new scratchpad run file: new slug, contract, remaining subtasks, untouched, tried and failed, plus a fresh step-3 baseline taken after step 3 (none for `Repo: none`).
+4. Seed a new scratchpad run file: new slug, contract, remaining subtasks, untouched, assumed, tried and failed, plus a fresh step-3 baseline taken after step 3 (none for `Repo: none`).
 5. Say in at most 4 lines: goal, next step, and that the checkpoint is only as fresh as the paste. If Open lists questions, ask them and wait for the answers before acting; else do the next step under the boss rules. Re-dispatch in-flight agents only if their work is still needed.
 
 ## Suggest /clear
