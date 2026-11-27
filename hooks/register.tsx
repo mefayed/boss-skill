@@ -5,14 +5,14 @@ import type { BossLiveJob, BossLiveLane, BossLiveProof, BossLiveResult, BossLive
 import { outsideRun, readContract, readInspection, readQuestions, readStatus, short } from './boss-text'
 import { CARD_HEIGHT, cardSvg, type CardKind, type CardModel } from './card'
 import { bashRule, clean, inRoots, inScratch, within, type Roots } from './guard'
-import { hasRepo, isLessonFile, NEED_REPO, NUDGE, REWRITE, overBudget, places, recall, replyProblem, resultText, withLessons } from './learn'
+import { hasRepo, isLessonFile, NEED_REPO, NUDGE, REWRITE, overBudget, places, recall, repoLines, replyProblem, resultText, withLessons, withoutCode } from './learn'
 
 // Change the tag when the state's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const live = atom(
   { plugin: 'boss', key: 'live' } as const,
   { jobs: {}, agents: {}, run: null, proof: null, finished: null, isWaiting: false, inPicker: false, waitingSince: null, questions: [], hadRun: false, task: null },
-  { shape: 'live-5' },
+  { shape: 'live-6' },
 )
 const isHidden = atom({ plugin: 'boss', key: 'isHidden' } as const, false)
 const learn = atom({ plugin: 'boss', key: 'learn' } as const, { isBoss: false, asked: false, wroteMemory: false, blocked: false }, { shape: 'learn-1' })
@@ -34,7 +34,9 @@ const LANES: Record<string, { phase: string; who: string; isReadOnly: boolean }>
   advocate: { phase: 'checking the plan', who: 'advocates', isReadOnly: true },
   errand: { phase: 'looking up', who: 'errand agents', isReadOnly: true },
 }
-const CODEX = /codex-companion\.mjs["']?\s+(task|result|cancel)\b/
+// The companion's verbs that start a Codex job.
+const START = new Set(['task', 'adversarial-review'])
+const CODEX = /codex-companion\.mjs["']?\s+(task|adversarial-review|result|cancel)\b/
 const QUESTION = /Reply ["“]go["”]/
 const CHECK_TONE: Record<BossLiveResult, string> = { PASS: 'success', FAIL: 'error', 'NOT CHECKED': 'warning' }
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -96,6 +98,14 @@ const HOLD_MS = 1500
 let seq = 0
 let mainTurnSeq = 0
 let personSeq = 0
+// The main loop's turn as its start and end report it; null after a reload, when the band's isWorking stands in.
+let mainTurn: { id: string; running: boolean } | null = null
+// What the person typed over a running main turn, by that turn's id, until the next main turn starts.
+const typedOver = new Map<string, string>()
+// Tool calls still running per boss agent: one long call is not a quiet agent.
+const inFlight = new Map<string, number>()
+// The run the day already counted, and whether it counted its pass: a verdict that changes counts once.
+let dayRun: { run: number; proven: boolean } | null = null
 
 const READS = ['Read', 'Grep', 'Glob', 'LS', 'NotebookRead']
 const EDITS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']
@@ -144,25 +154,33 @@ function readGoal(brief: string): string | null {
   return goal === undefined ? null : short(goal, 200)
 }
 
-// The brief's REPO path: the whole line, since paths hold spaces.
-function readRepo(brief: string): string | null {
-  const repo = /^\s*REPO\s*:\s*(\/.*)$/m.exec(brief)?.[1]
-  return repo === undefined ? null : clean(repo.trim())
+// The brief's REPO folders, one per REPO line: the whole line when it is a folder, since paths
+// hold spaces, else the line cut at its note (" (", " — ", " - ", " # "), longest cut first.
+async function readRepos($: $, brief: string): Promise<string[]> {
+  const found: string[] = []
+  for (const line of repoLines(brief)) {
+    const cuts = [...line.matchAll(/ \(| — | - | # /g)].map(m => line.slice(0, m.index).trim()).reverse()
+    let pick = cuts.at(-1) ?? line
+    for (const one of [line, ...cuts]) {
+      if (await $.fs.list(one).then(() => true, () => false)) {
+        pick = one
+        break
+      }
+    }
+    const repo = clean(pick)
+    if (repo !== null && !found.includes(repo)) found.push(repo)
+  }
+  return found
 }
 
 const STEPS = ['Plan', 'Build', 'Check', 'Done']
-const STEP_OF: Record<BossLiveLane, number> = {
-  'fable-advisor': 0,
-  advocate: 0,
-  errand: 0,
-  builder: 1,
-  'builder-deep': 1,
-  codex: 1,
-  local: 1,
-  outside: 1,
-  inspector: 2,
+// The step a job works on, from what it does: a read-only Codex or outside model reviews the work.
+function stepOf(job: BossLiveJob): number {
+  if (job.phase === 'building') return 1
+  if (job.phase === 'testing' || job.lane === 'codex' || job.lane === 'local' || job.lane === 'outside') return 2
+  return 0
 }
-const STEP_WORD = { done: 'done', skipped: 'skipped', current: 'now', next: 'next' } as const
+const STEP_WORD = { done: 'done', skipped: 'skipped', current: 'now', next: 'next', failed: 'failed', open: 'open' } as const
 
 // The last card drawn: an unchanged card keeps its picture, so its animations run on
 // smoothly instead of restarting every time the band is asked again.
@@ -225,8 +243,8 @@ async function writeRoots($: $, agentId?: string): Promise<Roots | null> {
   try {
     const cwd = await $.session.cwd()
     const scratch = (await $.session.info().catch(() => null))?.scratchpadDir ?? null
-    const repo = agentId === undefined ? null : ((await read($, live)).agents[agentId]?.repo ?? null)
-    return { cwd, repo, scratch }
+    const repos = agentId === undefined ? [] : ((await read($, live)).agents[agentId]?.repos ?? [])
+    return { cwd, repos, scratch }
   } catch {
     return null
   }
@@ -262,20 +280,26 @@ async function addJob($: $, id: string, job: BossLiveJob, goal: string | null = 
   let isNewRun = false
   await update($, live, s => {
     // A proof still open means the same run goes on (build, review, then the inspector).
-    // So does a start within two minutes of the last finish (a local model, then the builder).
+    // So does a start within two minutes of the last finish (a local model, then the builder),
+    // and a builder of this session woken again (boss's bounce).
     const isOpen = s.proof !== null && s.proof.verdict === null
-    const resumed = s.run === null && s.finished !== null && (isOpen || job.startedAt - s.finished.endedAt < 120_000) ? s.finished : null
+    const isWokenBuilder = isBuilder(job.lane) && s.agents[id] !== undefined
+    const resumed = s.run === null && s.finished !== null && (isOpen || isWokenBuilder || job.startedAt - s.finished.endedAt < 120_000) ? s.finished : null
     isNewRun = s.run === null && resumed === null
     const agents = Object.fromEntries([...Object.entries(s.agents).filter(([key]) => key !== id), [id, job]].slice(-50))
     const run = s.run ?? (resumed === null ? null : { startedAt: resumed.startedAt, count: resumed.count })
+    // An agent this run already counted (a resume, the inspector's phase 2) is not one more.
+    const known = s.agents[id]
+    const isCounted = run !== null && known !== undefined && known.startedAt >= run.startedAt
     return {
       ...s,
       finished: s.run === null ? null : s.finished,
       jobs: { ...s.jobs, [id]: job },
       agents,
-      run: { startedAt: run?.startedAt ?? job.startedAt, count: (run?.count ?? 0) + 1 },
+      run: { startedAt: run?.startedAt ?? job.startedAt, count: (run?.count ?? 0) + (isCounted ? 0 : 1) },
       hadRun: true,
-      task: isNewRun ? goal : (s.task ?? goal),
+      // A builder's GOAL names the run from then on (the next unit of a queue).
+      task: goal ?? (isNewRun ? null : s.task),
     }
   })
   if (isNewRun) {
@@ -287,12 +311,25 @@ async function addJob($: $, id: string, job: BossLiveJob, goal: string | null = 
   }
 }
 
-// A builder's brief opens the proof board, or adds its checks to the open one.
+const EMPTY: BossLiveProof = { test: null, verdict: null, checks: [], builder: null, doneAt: null, by: null, mayReplace: false }
+
+// Building again: the verdict no longer stands, the checks wait to be proven again.
+function reopened(proof: BossLiveProof): BossLiveProof {
+  return { ...proof, verdict: null, by: null, mayReplace: false, doneAt: null, builder: 'working', checks: proof.checks.map(check => ({ name: check.name, result: null })) }
+}
+// A reopen also forgets what the last pass proved.
+function forgetProof() {
+  proved = null
+  isProofStale = false
+}
+
+// A builder's brief opens the proof board, or adds its checks to the open one; one with no
+// contract reopens the board it works on.
 function withBrief(proof: BossLiveProof | null, brief: string): BossLiveProof | null {
   const { test, checks } = readContract(brief)
   const isOpen = proof !== null && proof.verdict === null
-  if (test === null && checks.length === 0) return isOpen ? { ...proof, builder: 'working' } : proof
-  const base: BossLiveProof = isOpen ? proof : { test: null, verdict: null, checks: [], builder: null, doneAt: null }
+  if (test === null && checks.length === 0) return proof === null ? proof : isOpen ? { ...proof, builder: 'working' } : reopened(proof)
+  const base: BossLiveProof = isOpen ? proof : EMPTY
   const names = new Set(base.checks.map(check => check.name))
 
   return {
@@ -303,7 +340,7 @@ function withBrief(proof: BossLiveProof | null, brief: string): BossLiveProof | 
   }
 }
 
-function withReport(proof: BossLiveProof | null, lane: BossLiveLane, answer: string, isLastBuilder: boolean, now: number) {
+function withReport(proof: BossLiveProof | null, lane: BossLiveLane, answer: string, isLastBuilder: boolean, now: number, id: string) {
   if (isBuilder(lane)) {
     if (proof === null) return proof
     const status = readStatus(answer)
@@ -313,30 +350,44 @@ function withReport(proof: BossLiveProof | null, lane: BossLiveLane, answer: str
   if (lane !== 'inspector') return proof
 
   const { test, verdict, rows } = readInspection(answer)
-  const base: BossLiveProof = proof ?? { test: null, verdict: null, checks: [], builder: null, doneAt: null }
+  const base: BossLiveProof = proof ?? EMPTY
   if (verdict === null) return { ...base, test: base.test ?? test }
+  // A FAIL stands against another inspector until a counted edit follows it, or the board reopens.
+  if (base.verdict === 'FAIL' && verdict !== 'FAIL' && base.by !== id && !base.mayReplace) return { ...base, test: base.test ?? test }
   const shown = rows.filter(row => !/first human test/i.test(row.name)).map(row => ({ ...row, at: now }))
+  // Over another inspector's pass, a worse verdict keeps that pass's rows and updates them by name.
+  const isMerge = base.verdict === 'PASS' && base.by !== id && verdict !== 'PASS'
+  const merged = [...base.checks.map(check => shown.find(row => row.name === check.name) ?? check), ...shown.filter(row => !base.checks.some(check => check.name === row.name))]
+  const checks = shown.length === 0 ? base.checks : isMerge ? merged : shown
 
-  return { ...base, test: base.test ?? test, verdict, doneAt: now, checks: shown.length > 0 ? shown : base.checks }
+  return { ...base, test: base.test ?? test, verdict, by: id, mayReplace: false, doneAt: now, checks }
 }
 
-async function endJob($: $, id: string | undefined, report = '') {
+// `stopped`: the run ended with no answer, so it proves nothing. `timer`: a time limit, which
+// ends only a job still running (a harvested one stays as it ended).
+async function endJob($: $, id: string | undefined, report = '', how: { stopped?: boolean; timer?: boolean } = {}) {
   const now = await $.clock.now()
   let toast: string | null = null
   let day: Partial<Day> | null = null
   let verdict: BossLiveResult | null = null
+  let counted: typeof dayRun = dayRun
   await update($, live, s => {
-    const job = id === undefined ? undefined : (s.jobs[id] ?? s.agents[id])
+    const job = id === undefined ? undefined : how.timer === true ? s.jobs[id] : (s.jobs[id] ?? s.agents[id])
     if (id === undefined || job === undefined) return s
     const { [id]: _, ...jobs } = s.jobs
     const isLastBuilder = !Object.values(jobs).some(other => isBuilder(other.lane))
-    const proof = withReport(s.proof, job.lane, report, isLastBuilder, now)
-    if (isBuilder(job.lane) && readStatus(report) === 'blocked') blockedBuilders.add(id)
+    const isStopped = how.stopped === true
+    const proof = isStopped
+      ? isBuilder(job.lane) && s.proof !== null ? { ...s.proof, builder: 'blocked' as const } : s.proof
+      : withReport(s.proof, job.lane, report, isLastBuilder, now, id)
+    if (isBuilder(job.lane) && (isStopped || readStatus(report) === 'blocked')) blockedBuilders.add(id)
     const isDone = Object.keys(jobs).length === 0
     const known = s.agents[id]
-    const agents = known === undefined ? s.agents : { ...s.agents, [id]: { ...known, endedAt: now } }
+    const agents = known === undefined ? s.agents : { ...s.agents, [id]: { ...known, endedAt: now, ...(isStopped ? { stopped: true as const } : {}) } }
     toast = null
-    if (proof !== null && proof.verdict !== null && s.proof?.verdict !== proof.verdict) {
+    if (isStopped) {
+      toast = 'Boss: stopped'
+    } else if (proof !== null && proof.verdict !== null && s.proof?.verdict !== proof.verdict) {
       const total = proof.checks.length
       const proven = proof.checks.filter(check => check.result === 'PASS').length
       const failedCheck = proof.checks.find(check => check.result === 'FAIL')
@@ -353,11 +404,22 @@ async function endJob($: $, id: string | undefined, report = '') {
     const finished = isDone && s.run !== null ? { startedAt: s.run.startedAt, endedAt: now, count: s.run.count } : s.finished
     const isNewVerdict = proof !== null && proof.verdict !== null && s.proof?.verdict !== proof.verdict
     day = s.jobs[id] === undefined ? null : { agentMs: now - job.startedAt }
+    // The day counts each run once, and its pass once, however often its verdict changes.
+    const runKey = s.run?.startedAt ?? s.finished?.startedAt ?? now
+    counted = dayRun?.run === runKey ? dayRun : null
+    const runs = counted === null ? 1 : 0
     if (isNewVerdict) verdict = proof.verdict
-    if (isNewVerdict) day = { ...day, runs: 1, proven: proof.verdict === 'PASS' ? 1 : 0 }
-    else if (isDone && proof === null && s.jobs[id] !== undefined) day = { ...day, runs: 1 }
+    if (isNewVerdict) {
+      const isFirstPass = proof.verdict === 'PASS' && counted?.proven !== true
+      day = { ...day, runs, proven: isFirstPass ? 1 : 0 }
+      counted = { run: runKey, proven: counted?.proven === true || isFirstPass }
+    } else if (isDone && proof === null && s.jobs[id] !== undefined) {
+      day = { ...day, runs }
+      counted = { run: runKey, proven: counted?.proven === true }
+    }
     return { ...s, jobs, agents, proof, finished, run: isDone ? null : s.run }
   })
+  dayRun = counted
   if (id !== undefined) {
     asking.delete(id)
     toldQuiet.delete(id)
@@ -392,9 +454,10 @@ function answered($: $, id: string | undefined) {
 
 // A Claude agent with no tool call for 3 minutes gets one toast; its next call starts the count again.
 async function tellQuiet($: $) {
+  if (await read($, isHidden)) return
   const now = await $.clock.now()
   for (const [id, job] of Object.entries((await read($, live)).jobs)) {
-    if (!(job.lane in LANES) || asking.has(id)) continue
+    if (!(job.lane in LANES) || asking.has(id) || (inFlight.get(id) ?? 0) > 0) continue
     const last = Math.max(job.startedAt, beats.get(id)?.at(-1) ?? 0)
     if (now - last < QUIET_MS || toldQuiet.get(id) === last) continue
     toldQuiet.set(id, last)
@@ -404,9 +467,10 @@ async function tellQuiet($: $) {
 
 // The boss lanes' guard and what the card learns from each call.
 const bossCall: Hook<'tool.call'> = async ($, e, next) => {
-  // The main session asks in Claude Code's own picker: your turn until it returns.
+  // The main session asks in Claude Code's own picker: in a boss session, your turn until it returns.
   if (e.tool === 'AskUserQuestion' && e.agentId === undefined) {
     await update($, learn, s => ({ ...s, asked: true }))
+    if (!(await read($, learn)).isBoss) return next(e)
     const now = await $.clock.now()
     const asked = (Array.isArray(e.questions) ? e.questions : []).map(q => ({ text: short(String(q.question), 70), pick: null, isLeastSure: false }))
     await update($, live, s => ({ ...s, isWaiting: true, inPicker: true, waitingSince: s.waitingSince ?? now, questions: asked }))
@@ -425,33 +489,31 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
   if (rules !== undefined) {
     const roots = lane !== undefined && isBuilder(lane) ? await writeRoots($, e.agentId) : null
     const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
+    // Every lane's scratchpad is this session's own; none known, any /tmp/claude-N folder.
+    const scratch = roots?.scratch ?? (await $.session.info().catch(() => null))?.scratchpadDir ?? null
+    const home = (await $.env.get('HOME').catch(() => undefined)) ?? null
     let what: string | null = null
-    if (e.tool === 'Bash') what = bashRule(e.command, rules.isReadOnly, roots)
-    else if (rules.isReadOnly && (e.tool === 'Write' || e.tool === 'Edit') && !inScratch(e.file_path)) what = 'write files outside the scratchpad'
-    else if (rules.isReadOnly && e.tool === 'NotebookEdit' && !inScratch(e.notebook_path)) what = 'write files outside the scratchpad'
+    if (e.tool === 'Bash') what = bashRule(e.command, rules.isReadOnly, roots, { scratch, home })
+    else if (rules.isReadOnly && (e.tool === 'Write' || e.tool === 'Edit') && !inScratch(e.file_path, null, scratch)) what = 'write files outside the scratchpad'
+    else if (rules.isReadOnly && e.tool === 'NotebookEdit' && !inScratch(e.notebook_path, null, scratch)) what = 'write files outside the scratchpad'
     else if (roots !== null && path !== undefined && !inRoots(path, roots)) what = 'write files outside REPO and the scratchpad'
+    // A refusal that says what to do instead comes whole.
+    if (what?.startsWith('boss-live: ')) return { deny: what }
     if (what !== null) return { deny: `boss-live: ${rules.who} may not ${what} — report it under OPEN instead` }
   }
-  // Right now, in fixed phrases: what kind of work, never what it touched.
+  // Right now, in fixed phrases: what kind of work, never what it touched. An edit counts once it ran.
   const isTest = lane !== undefined && e.tool === 'Bash' && TESTS.test(e.command)
   if (lane !== undefined && e.agentId !== undefined) {
     const tool = String(e.tool)
-    const path = pathOf(e)
-    if (EDITS.includes(tool) && path !== undefined) {
-      edited.add(path)
-      if (isBuilder(lane)) built.add(path)
-    }
     const what = READS.includes(tool)
       ? 'Reading the code'
-      : EDITS.includes(tool)
-        ? `Editing ${edited.size} file${edited.size === 1 ? '' : 's'}`
-        : LOOKUPS.includes(tool)
-          ? 'Looking things up'
-          : tool === 'Bash'
-            ? isTest
-              ? 'Running tests'
-              : 'Running a command'
-            : null
+      : LOOKUPS.includes(tool)
+        ? 'Looking things up'
+        : tool === 'Bash'
+          ? isTest
+            ? 'Running tests'
+            : 'Running a command'
+          : null
     if (what !== null) doing.set(e.agentId, { what, at: await $.clock.now() })
   }
 
@@ -462,7 +524,16 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     for (const id of open) await endJob($, id)
   }
 
-  if (e.tool !== 'Bash') return next(e)
+  if (e.tool !== 'Bash') {
+    const ran = await next(e)
+    const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
+    if (lane !== undefined && e.agentId !== undefined && path !== undefined && ran.deny === undefined && ran.isError !== true) {
+      edited.add(path)
+      if (isBuilder(lane)) built.add(path)
+      doing.set(e.agentId, { what: `Editing ${edited.size} file${edited.size === 1 ? '' : 's'}`, at: await $.clock.now() })
+    }
+    return ran
+  }
   const command = e.command
   const model = outsideRun(command)
   if (model?.script !== undefined && model.model === 'ollama') {
@@ -485,13 +556,7 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     const ran = await next(e)
     const taskId = (ran.result as { backgroundTaskId?: unknown } | undefined)?.backgroundTaskId
     if (typeof taskId === 'string' && ran.deny === undefined) {
-      const job = (await read($, live)).jobs[e.tool_use_id]
-      await update($, live, s => {
-        const { [e.tool_use_id]: started, ...jobs } = s.jobs
-        const { [e.tool_use_id]: _, ...agents } = s.agents
-        return started === undefined ? s : { ...s, jobs: { ...jobs, [`bg:${taskId}`]: started }, agents: { ...agents, [`bg:${taskId}`]: started } }
-      })
-      if (job !== undefined) $.clock.after(600_000, () => void endJob($, `bg:${taskId}`))
+      if (await renameJob($, e.tool_use_id, `bg:${taskId}`)) $.clock.after(600_000, () => void endJob($, `bg:${taskId}`, '', { timer: true }))
     } else {
       await endJob($, e.tool_use_id)
     }
@@ -501,13 +566,14 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
   // A harvest or cancel that names a job id ends that job.
   const named = /\b(result|cancel)\b/.test(command) ? known.find(([id]) => command.includes(id)) : undefined
   const codex = CODEX.exec(command)
+  const verb = codex?.[1] ?? ''
   if (named !== undefined) await endJob($, named[0])
-  else if (codex !== null && codex[1] !== 'task') {
+  else if (codex !== null && !START.has(verb)) {
     // shortcut: a harvest or cancel with no job id ends the oldest Codex job.
     await endJob($, known.sort(([, a], [, b]) => a.startedAt - b.startedAt)[0]?.[0])
   }
 
-  const isTask = codex?.[1] === 'task'
+  const isTask = START.has(verb)
   const isWrite = /\s--write\b/.test(command)
   const job = async (id: string) =>
     addJob($, id, {
@@ -519,7 +585,6 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     })
   if (isTask) await job(e.tool_use_id)
   const ran = await next(e)
-  if (isTask) await endJob($, e.tool_use_id)
   // A finished test run adds its tally.
   const output = ran.result as { stdout?: unknown; stderr?: unknown } | undefined
   const counts = isTest ? testCounts(`${typeof output?.stdout === 'string' ? output.stdout : ''}\n${typeof output?.stderr === 'string' ? output.stderr : ''}`) : null
@@ -528,21 +593,64 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
   // prints the line on its own. Text that only quotes it (a test file read, a grep) does not count.
   const stdout = (ran.result as { stdout?: unknown } | undefined)?.stdout
   const started = typeof stdout === 'string' ? /^Codex Task started in the background as ([\w-]+)/im.exec(stdout)?.[1] : undefined
-  if (started !== undefined && ran.deny === undefined && !known.some(([id]) => id === started)) {
-    await job(started)
+  // Run in the background by Bash, the job is known by its task id until boss reads its output.
+  const taskId = (ran.result as { backgroundTaskId?: unknown } | undefined)?.backgroundTaskId
+  const later = isTask && ran.deny === undefined && typeof taskId === 'string' ? `bg:${taskId}` : started !== undefined && ran.deny === undefined && !known.some(([id]) => id === started) ? started : null
+  if (later !== null) {
+    // The launch's own job becomes the background one: one job, not two.
+    if (!isTask || !(await renameJob($, e.tool_use_id, later))) await job(later)
     // A job never harvested still leaves the card (the longest Codex run boss waits for).
-    $.clock.after(45 * 60_000, () => void endJob($, started))
+    $.clock.after(45 * 60_000, () => void endJob($, later, '', { timer: true }))
+  } else if (isTask) {
+    await endJob($, e.tool_use_id)
   }
 
   return ran
 }
 
-// A stuck builder woken with its answer (boss's bounce) is working again, unless
-// another builder is still stuck.
+// An edit to the project by a builder or boss itself (never the scratchpad or a lesson file):
+// after a FAIL it lets another inspector's pass replace it; a builder's after a PASS makes it stale.
+async function countEdit($: $, path: string, agentId: string | undefined) {
+  const lane = agentId === undefined ? undefined : await agentLane($, agentId)
+  if ((agentId !== undefined && (lane === undefined || !isBuilder(lane))) || inScratch(path)) return
+  const s = await read($, live)
+  const root = await $.session.root().catch(() => null)
+  const roots = [root, ...Object.values(s.agents).flatMap(job => job.repos ?? [])].filter((one): one is string => typeof one === 'string')
+  if (!roots.some(one => within(path, one))) return
+  if (s.proof?.verdict === 'FAIL' && !s.proof.mayReplace) {
+    await update($, live, now => (now.proof?.verdict === 'FAIL' ? { ...now, proof: { ...now.proof, mayReplace: true } } : now))
+  } else if (s.proof?.verdict === 'PASS' && agentId !== undefined && !isProofStale) {
+    isProofStale = true
+    $.ui.invalidate('ui.render')
+  }
+}
+
+// A launch's job, known from now on by the id its output carries; false when it already ended.
+async function renameJob($: $, from: string, to: string): Promise<boolean> {
+  let isRenamed = false
+  await update($, live, s => {
+    const { [from]: started, ...jobs } = s.jobs
+    const { [from]: _, ...agents } = s.agents
+    isRenamed = started !== undefined
+    return started === undefined ? s : { ...s, jobs: { ...jobs, [to]: started }, agents: { ...agents, [to]: started } }
+  })
+  return isRenamed
+}
+
+// A builder woken (boss's bounce) reopens a board that has a verdict; a stuck one is working
+// again, unless another builder is still stuck.
 async function wake($: $, id: string) {
   const known = (await read($, live)).agents[id]
   if (known === undefined || !isBuilder(known.lane)) return
   blockedBuilders.delete(id)
+  let isReopened = false
+  await update($, live, now => {
+    isReopened = now.proof !== null && now.proof.verdict !== null
+    if (now.proof === null || !isReopened) return now
+    const proof = reopened(now.proof)
+    return { ...now, proof: blockedBuilders.size > 0 ? { ...proof, builder: 'blocked' as const } : proof }
+  })
+  if (isReopened) forgetProof()
   if (blockedBuilders.size > 0) return
   await update($, live, now => (now.proof !== null && now.proof.verdict === null ? { ...now, proof: { ...now.proof, builder: 'working' as const } } : now))
 }
@@ -556,10 +664,12 @@ export const register: Register = on => {
       immediate: true,
     })
     if ((await $.store.get('isHidden').catch(() => undefined)) === true) await setHidden($, true)
-    // A reload forgets the timers: a Codex job still on the card gets its 45-minute limit again.
+    // A reload forgets the timers: a Codex job still on the card gets its 45-minute limit again,
+    // a background outside model its 10 minutes.
     const now = await $.clock.now()
     for (const [id, job] of Object.entries((await read($, live)).jobs)) {
-      if (job.lane === 'codex') $.clock.after(Math.max(0, job.startedAt + 45 * 60_000 - now), () => void endJob($, id))
+      if (job.lane === 'codex') $.clock.after(Math.max(0, job.startedAt + 45 * 60_000 - now), () => void endJob($, id, '', { timer: true }))
+      else if (id.startsWith('bg:')) $.clock.after(Math.max(0, job.startedAt + 600_000 - now), () => void endJob($, id, '', { timer: true }))
     }
     return next(e)
   })
@@ -582,8 +692,9 @@ export const register: Register = on => {
     }
     // A builder may write in its REPO too, so one outside the session folder must be a project's own.
     const roots = lane !== undefined && isBuilder(lane) ? await writeRoots($) : null
-    const repo = roots === null ? null : readRepo(e.prompt)
-    if (roots !== null && repo !== null && !within(repo, roots.cwd)) {
+    // Kept for every boss agent: an edit inside a REPO is an edit to the project.
+    const repos = lane === undefined ? [] : await readRepos($, e.prompt)
+    for (const repo of roots === null ? [] : repos.filter(one => !within(one, roots.cwd))) {
       const why = await repoProblem($, repo)
       if (why !== null) return { deny: `boss-live: REPO ${repo} is ${why} — brief the project's own folder` }
     }
@@ -593,10 +704,18 @@ export const register: Register = on => {
     const prompt = lane === undefined ? e.prompt : withLessons(e.prompt, await recall($, lane))
     const ran = await next(prompt === e.prompt ? e : { ...e, prompt })
     if (lane !== undefined && ran.agentId !== undefined) {
+      // A boss agent makes this a boss session.
+      await update($, learn, s => (s.isBoss ? s : { ...s, isBoss: true }))
       // A new builder resets "stuck" (withBrief), so the stuck list starts over with it.
       if (isBuilder(lane)) {
         blockedBuilders.clear()
-        await update($, live, s => ({ ...s, proof: withBrief(s.proof, e.prompt) }))
+        let isReopened = false
+        await update($, live, s => {
+          const proof = withBrief(s.proof, e.prompt)
+          isReopened = s.proof?.verdict != null && proof?.verdict == null
+          return { ...s, proof }
+        })
+        if (isReopened) forgetProof()
       }
       await addJob($, ran.agentId, {
         lane,
@@ -604,21 +723,31 @@ export const register: Register = on => {
         model: shortModel(e.model ?? ran.model),
         description: e.description,
         startedAt: await $.clock.now(),
-        ...(repo === null ? {} : { repo }),
+        ...(repos.length === 0 ? {} : { repos }),
       }, isBuilder(lane) ? readGoal(e.prompt) : null)
     }
 
     return ran
   })
 
-  // A boss agent woken again (the inspector's second phase) runs once more.
+  // The main turn runs; a boss agent woken again (the inspector's second phase) runs once more.
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) mainTurnSeq = ++seq
+    if (e.agentId === undefined) {
+      mainTurnSeq = ++seq
+      mainTurn = { id: e.turnId, running: true }
+      // A turn with words of its own starts the reply checks over; a continuation does not.
+      if (e.text !== '') await update($, learn, s => ({ ...s, asked: false, wroteMemory: false, blocked: false }))
+      // A message typed over the last turn, now run as this one, answers the wait.
+      const text = e.text.trim()
+      const isAnswer = text !== '' && [...typedOver.values()].some(typed => typed.trim() !== '' && text.includes(typed.trim()))
+      typedOver.clear()
+      if (isAnswer) await update($, live, s => ({ ...s, isWaiting: false, inPicker: false, waitingSince: null, questions: [] }))
+    }
     if (e.agentId !== undefined) {
       const s = await read($, live)
       const known = s.agents[e.agentId]
       if (known !== undefined && s.jobs[e.agentId] === undefined) {
-        const { endedAt: _, ...again } = known
+        const { endedAt: _, stopped: _stopped, ...again } = known
         await addJob($, e.agentId, { ...again, startedAt: await $.clock.now() })
         await wake($, e.agentId)
       }
@@ -643,8 +772,14 @@ export const register: Register = on => {
       })
     }
     if (e.agentId !== undefined) {
-      await endJob($, e.agentId, e.answer)
-    } else if (QUESTION.test(e.answer) && !(mainTurnSeq > 0 && personSeq > mainTurnSeq)) {
+      // Interrupted, refused or cut off by an error: stopped, not done.
+      await endJob($, e.agentId, e.answer, { stopped: e.reason !== 'answer' })
+    } else {
+      // Aborted or answered, the main turn is over: the card stops looking busy.
+      mainTurn = { id: e.turnId, running: false }
+      $.ui.invalidate('ui.render')
+    }
+    if (e.agentId === undefined && QUESTION.test(withoutCode(e.answer)) && !(mainTurnSeq > 0 && personSeq > mainTurnSeq)) {
       // Waits on the person, unless they answered after this turn began (Go pressed before it ended).
       let isNew = false
       const questions = readQuestions(e.answer)
@@ -653,7 +788,8 @@ export const register: Register = on => {
         isNew = !s.isWaiting && s.hadRun
         return { ...s, isWaiting: true, inPicker: false, waitingSince: s.waitingSince ?? now, questions, hadRun: isNew ? false : s.hadRun }
       })
-      if (isNew) $.ui.toast('Boss needs your answer')
+      // A message typed over this turn is already on its way: no toast to chase it.
+      if (isNew && !typedOver.has(e.turnId)) $.ui.toast('Boss needs your answer')
     }
 
     return next(e)
@@ -661,12 +797,18 @@ export const register: Register = on => {
 
   // An answer ends the wait; a new ask after a finished run clears the board.
   on('prompt.submit', async ($, e, next) => {
-    // Each prompt starts a turn: the reply checks look at this turn only.
-    await update($, learn, s => ({ ...s, asked: false, wroteMemory: false, blocked: false }))
     // Only a person's message counts: an agent-finished notice or a continuation
     // the engine sends must not end the wait or clear the board.
     const MACHINE = ['task-notification', 'auto-continuation', 'observer', 'observer-activity', 'coordinator', 'scheduled-trigger', 'peer', 'peer-send-message', 'projects-relay']
     if (MACHINE.includes(e.origin.kind) || e.isMeta === true) return next(e)
+    // A plugin's prompt (this card's Go, Go cheaper) did its own bookkeeping.
+    if (e.origin.kind === 'plugin') return next(e)
+    // Typed over a running turn: it answers a wait but starts no new ask.
+    if (e.turnId !== undefined) {
+      typedOver.set(e.turnId, e.text)
+      await update($, live, s => ({ ...s, isWaiting: false, inPicker: false, waitingSince: null, questions: [] }))
+      return next(e)
+    }
     personSeq = ++seq
     await update($, live, s => {
       const isNewAsk = Object.keys(s.jobs).length === 0 && !s.isWaiting
@@ -697,7 +839,7 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     const ran = await next(e)
     const s = await read($, learn)
-    if (e.agent_id !== undefined || e.stop_hook_active || s.blocked) return ran
+    if (e.agent_id !== undefined || e.stop_hook_active || s.blocked || !s.isBoss) return ran
     const problem = replyProblem(e.last_assistant_message ?? '', s)
     if (problem === null) return ran
     await update($, learn, now => ({ ...now, blocked: true }))
@@ -735,26 +877,38 @@ export const register: Register = on => {
   // to a file the last pass proved makes that proof stale.
   on('tool.call', async ($, e, next) => {
     answered($, e.agentId)
+    const agentId = e.agentId
+    if (agentId !== undefined) inFlight.set(agentId, (inFlight.get(agentId) ?? 0) + 1)
     try {
       if (e.agentId === undefined && e.tool === 'Skill' && /^(boss:)?boss$/.test(e.skill)) await update($, learn, s => ({ ...s, isBoss: true }))
       const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
-      // A lesson file stays within its budget, so memory stays small enough to read.
-      const at = path === undefined || (e.tool !== 'Write' && e.tool !== 'Edit') ? null : await places($)
-      const target = at === null || path === undefined ? null : clean(path)
+      const at = path === undefined ? null : await places($)
+      const target = path === undefined ? null : clean(path)
       const isLesson = at !== null && target !== null && isLessonFile(target, at)
-      if (at !== null && target !== null && isLesson) {
+      if (at !== null && target !== null && isLesson && (e.tool === 'Write' || e.tool === 'Edit')) {
         // Sessions share these files: a whole-file Write would drop a lesson another one just added.
         if (e.tool === 'Write' && (await $.fs.exists(target).catch(() => false))) return { deny: REWRITE }
-        const text = await resultText($, e, target)
-        const over = text === null ? null : overBudget(target, text, at)
+        // In a boss session a lesson file stays within its budget, so memory stays small enough to read.
+        const text = (await read($, learn)).isBoss ? await resultText($, e, target) : null
+        // Over budget only counts when it is worse than the file is now: a trim always lands.
+        const over = text === null ? null : overBudget(target, text, at, String(await $.fs.read(target).catch(() => '')))
         if (over !== null) return { deny: `boss-live: ${over} — trim or merge lessons, then write` }
       }
       const ran = await bossCall($, e, next)
+      const isDone = ran.deny === undefined && ran.isError !== true
       if (ran.deny === undefined && path !== undefined) staleIf($, path)
-      if (ran.deny === undefined && isLesson && e.agentId === undefined) await update($, learn, s => ({ ...s, wroteMemory: true }))
+      if (isDone && isLesson && e.agentId === undefined) await update($, learn, s => ({ ...s, wroteMemory: true }))
+      if (isDone && target !== null && !isLesson) await countEdit($, target, e.agentId)
       return ran
     } finally {
       answered($, e.agentId)
+      if (agentId !== undefined) {
+        const left = (inFlight.get(agentId) ?? 1) - 1
+        if (left > 0) inFlight.set(agentId, left)
+        else inFlight.delete(agentId)
+        // A call that just ended is the agent's latest sign of life.
+        if (beats.has(agentId)) beats.set(agentId, [...(beats.get(agentId) ?? []).slice(-199), await $.clock.now()])
+      }
     }
   }).catch(($, e, next) =>
     next.called || e.agentId === undefined ? next(e) : { deny: 'boss-live: the safety check failed, so this call was stopped' },
@@ -784,9 +938,17 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s: BossLiveState = await read($, live)
     const jobs = Object.values(s.jobs).sort((a, b) => a.startedAt - b.startedAt)
+    // Hidden: no card, so nothing to redraw and no quiet toasts.
+    if (await read($, isHidden)) {
+      ticker?.cancel()
+      ticker = null
+      return next(e)
+    }
+    // The main turn as its events report it; after a reload, the band's own word.
+    const mainRunning = mainTurn?.running ?? e.props.isWorking
     // The pulse runs only while someone is working.
     // Between agents: the builder is done and boss reads its work before the inspector.
-    const isBetween = jobs.length === 0 && !s.isWaiting && s.proof !== null && s.proof.verdict === null && s.finished !== null
+    const isBetween = jobs.length === 0 && !s.isWaiting && s.proof !== null && s.proof.verdict === null && s.finished !== null && mainRunning
     const isTicking = jobs.length > 0 || s.isWaiting || isBetween
     if (isTicking && ticker === null) {
       ticker = $.clock.every(5000, () => {
@@ -798,13 +960,17 @@ export const register: Register = on => {
       ticker.cancel()
       ticker = null
     }
-    if (e.props.hasSurvey || (await read($, isHidden)) || (jobs.length === 0 && !s.isWaiting && s.proof === null)) {
+    if (e.props.hasSurvey || (jobs.length === 0 && !s.isWaiting && s.proof === null)) {
       return next(e)
     }
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const now = await $.clock.now()
-    const proof = s.proof
+    // Boss's turn ended with the team done and no verdict: drawn as not checked, never stored,
+    // so an inspector that comes later still joins this run.
+    const overlay: BossLiveProof | null =
+      jobs.length === 0 && !s.isWaiting && s.finished !== null && s.proof?.verdict === null && !mainRunning ? { ...s.proof, verdict: 'NOT CHECKED' } : s.proof
+    const proof = overlay
     // A save no event reported: the proven files' modified times, checked as the card draws.
     if (proved !== null && !isProofStale && proof?.verdict === 'PASS') {
       for (const [path, at] of proved) {
@@ -822,7 +988,11 @@ export const register: Register = on => {
       ? 'needs your answer'
       : (PHASES.find(p => jobs.some(job => job.phase === p)) ?? (jobs.length > 0 ? 'working' : 'done'))
     const accent =
-      proof?.verdict === 'PASS' && jobs.length === 0 ? 'success' : proof?.verdict === 'FAIL' || (proof?.verdict === null && proof.builder === 'blocked') ? 'error' : (TONE[phase] ?? 'claude')
+      proof?.verdict === 'PASS' && jobs.length === 0 && !isStale
+        ? 'success'
+        : proof?.verdict === 'FAIL' || (proof?.verdict === null && proof.builder === 'blocked')
+          ? 'error'
+          : (TONE[phase] ?? 'claude')
     const mood = isBetween
       ? 'Reviewing the work'
       : phase !== 'done'
@@ -882,10 +1052,10 @@ export const register: Register = on => {
     if (shown === null || (shown.text !== candidate && (acts.length === 0 || isAskChange || now - shown.at >= HOLD_MS))) shown = { text: candidate, at: now }
     const rightNow = shown.text
     // Plan › Build › Check › Done: steps the run passed are done, or skipped if no agent did them.
-    const reached = new Set(team.map(([, job]) => STEP_OF[job.lane]))
+    const reached = new Set(team.map(([, job]) => stepOf(job)))
     const current =
       jobs.length > 0
-        ? Math.max(...jobs.map(job => STEP_OF[job.lane]))
+        ? Math.max(...jobs.map(stepOf))
         : verdict !== null
           ? 3
           : team.length > 0
@@ -896,8 +1066,7 @@ export const register: Register = on => {
       state: k === current ? ('current' as const) : k > current ? ('next' as const) : reached.has(k) ? ('done' as const) : ('skipped' as const),
     }))
     const stepAt =
-      current === 3 ? (proof?.doneAt ?? null) : (team.filter(([, job]) => STEP_OF[job.lane] === current).map(([, job]) => job.startedAt).sort((a, b) => a - b)[0] ?? null)
-    const stepsText = steps.map(step => `${step.label} ${STEP_WORD[step.state]}`).join(', ')
+      current === 3 ? (proof?.doneAt ?? null) : (team.filter(([, job]) => stepOf(job) === current).map(([, job]) => job.startedAt).sort((a, b) => a - b)[0] ?? null)
 
     const proven = proof === null ? 0 : proof.checks.filter(check => check.result === 'PASS').length
     const total = proof?.checks.length ?? 0
@@ -949,6 +1118,22 @@ export const register: Register = on => {
     // The stage's colour while the team works: violet planning or researching, blue building, teal testing.
     const HUES = { 'checking the plan': 'plan', 'looking up': 'plan', building: 'build', testing: 'check' } as const
     const hue = kind !== 'working' ? null : phase in HUES ? HUES[phase as keyof typeof HUES] : (['plan', 'build', 'check', 'check'] as const)[current] ?? 'build'
+    // A failed test stops the run at Check, with Done still ahead; a run not checked, or a
+    // proof gone stale, leaves Check open. Not while someone works again. Every surface draws these.
+    const isUnproven = verdict === 'NOT CHECKED' || isStale
+    const drawnSteps =
+      jobs.length > 0 || !(verdict === 'FAIL' || isUnproven)
+        ? steps
+        : steps.map((step, k) =>
+            k === 2
+              ? { ...step, state: verdict === 'FAIL' ? ('failed' as const) : step.state === 'done' ? ('open' as const) : step.state }
+              : k === 3 && (verdict === 'FAIL' || kind === 'still')
+                ? { ...step, state: 'next' as const }
+                : step,
+          )
+    const stepsText = drawnSteps.map(step => `${step.label} ${STEP_WORD[step.state]}`).join(', ')
+    // A stopped agent: never a tick. The card folds a big or finished team into a count.
+    const isFolded = team.length > 3 || kind === 'done'
     // The same colours for the compact line's dot: one tone each that reads on dark and on light.
     const DOT = { plan: '#8f77f0', build: '#3f8ae6', check: '#1f9aa6', turn: '#bf7a00', done: '#23a05a', failed: '#e5484d' } as const
     const dotColor = kind === 'working' ? DOT[hue ?? 'build'] : kind === 'still' ? undefined : DOT[kind]
@@ -1083,7 +1268,6 @@ export const register: Register = on => {
             ? `${proven} of ${total} proven`
             : WORD[proofKind]
       if (stage === null || stage.mood !== mood) stage = { mood, at: now }
-      const isUnproven = verdict === 'NOT CHECKED' || isStale
       const card: CardModel = {
         kind,
         hue,
@@ -1093,10 +1277,11 @@ export const register: Register = on => {
         clock: clockText,
         // Shown once a run has a team; before that the headline says enough.
         task: team.length === 0 || task === null ? null : short(task, 140),
-        team: team.map(([id, job]) => ({
-          role: ROLE[job.lane] ?? job.lane,
-          state: running.has(id) ? ('run' as const) : ('done' as const),
-        })),
+        team: team.map(([id, job]) => {
+          const role = ROLE[job.lane] ?? job.lane
+          if (!running.has(id) && job.stopped === true && !isFolded) return { role: `${role} stopped`, state: 'stopped' as const }
+          return { role, state: running.has(id) ? ('run' as const) : ('done' as const) }
+        }),
         proof:
           proof === null || testText === null
             ? null
@@ -1108,18 +1293,7 @@ export const register: Register = on => {
                 checks: isUnproven ? [] : proof.checks.map(check => (check.result === 'PASS' ? 'pass' : check.result === 'FAIL' ? 'fail' : 'pending')),
                 checkAt: proof.doneAt,
               },
-        // A failed test stops the run at Check, with Done still ahead; a run not checked, or a
-        // proof gone stale, leaves Check open. Not while someone works again.
-        steps:
-          jobs.length > 0 || !(verdict === 'FAIL' || isUnproven)
-            ? steps
-            : steps.map((step, k) =>
-                k === 2
-                  ? { ...step, state: verdict === 'FAIL' ? ('failed' as const) : step.state === 'done' ? ('open' as const) : step.state }
-                  : k === 3 && (verdict === 'FAIL' || kind === 'still')
-                    ? { ...step, state: 'next' as const }
-                    : step,
-              ),
+        steps: drawnSteps,
         stepAt,
         // When the verdict came or the wait began; else when the card first drew this stage.
         stageAt: (kind === 'turn' ? s.waitingSince : kind === 'done' || kind === 'failed' ? proof?.doneAt : null) ?? stage.at,
@@ -1128,7 +1302,7 @@ export const register: Register = on => {
       const alt = [
         `Boss: ${mood}${note === null ? '' : ` · ${note}`}`,
         subline,
-        ...team.map(([id, job]) => `${ROLE[job.lane] ?? job.lane} ${running.has(id) && asking.has(id) ? 'asking you' : running.has(id) ? 'working' : 'done'}`),
+        ...team.map(([id, job]) => `${ROLE[job.lane] ?? job.lane} ${running.has(id) && asking.has(id) ? 'asking you' : running.has(id) ? 'working' : job.stopped === true ? 'stopped' : 'done'}`),
         testText === null ? '' : `Your test: ${testText}, ${proofWord}`,
         total > 0 ? `${proven} of ${total} proven${isProofStale && proof?.verdict === 'PASS' ? ' before the change' : ''}` : '',
         team.length === 0 || task === null ? '' : `Task: ${task}`,
@@ -1177,8 +1351,8 @@ export const register: Register = on => {
           <Box columnGap={2} flexWrap="wrap">
             {team.slice(0, 5).map(([id, job], i) => (
               <Text>
-                <Text color={!running.has(id) ? 'success' : asking.has(id) ? 'warning' : accent}>
-                  {!running.has(id) ? '✓' : asking.has(id) ? '●' : (SPIN[(frame + i * 3) % SPIN.length] ?? '•')}
+                <Text color={!running.has(id) ? (job.stopped === true ? 'error' : 'success') : asking.has(id) ? 'warning' : accent}>
+                  {!running.has(id) ? (job.stopped === true ? '✗' : '✓') : asking.has(id) ? '●' : (SPIN[(frame + i * 3) % SPIN.length] ?? '•')}
                 </Text>
                 <Text weight={running.has(id) ? 'semibold' : 'regular'} dimColor={!running.has(id)}>{` ${ROLE[job.lane] ?? job.lane}`}</Text>
                 <Text dimColor>{` ${job.model}`}</Text>
@@ -1195,13 +1369,13 @@ export const register: Register = on => {
         )}
         {team.length > 0 && (
           <Text>
-            {steps.map((step, k) => (
+            {drawnSteps.map((step, k) => (
               <Text
-                color={step.state === 'current' ? accent : step.state === 'done' ? 'success' : undefined}
+                color={step.state === 'current' ? accent : step.state === 'done' ? 'success' : step.state === 'failed' ? 'error' : undefined}
                 dimColor={step.state === 'next' || step.state === 'skipped'}
-                weight={step.state === 'current' ? 'bold' : 'regular'}
+                weight={step.state === 'current' || step.state === 'failed' ? 'bold' : 'regular'}
               >
-                {`${k === 0 ? '' : ' › '}${step.state === 'done' ? '✓ ' : ''}${step.label}`}
+                {`${k === 0 ? '' : ' › '}${step.state === 'done' ? '✓ ' : step.state === 'failed' ? '✗ ' : ''}${step.label}`}
               </Text>
             ))}
             <Text dimColor>{'  ·  '}</Text>

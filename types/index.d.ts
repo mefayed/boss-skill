@@ -18,8 +18,10 @@ export type BossLiveJob = {
   startedAt: number
   // When this agent last finished; absent while it runs.
   endedAt?: number
-  // A builder's brief REPO, a write root beside the session folder.
-  repo?: string
+  // The brief's REPO folders, one per REPO line; a builder's are write roots beside the session folder.
+  repos?: string[]
+  // Its last run ended without an answer (interrupted, refused, an API error).
+  stopped?: true
 }
 
 export type BossLiveResult = 'PASS' | 'FAIL' | 'NOT CHECKED'
@@ -35,6 +37,10 @@ export type BossLiveProof = {
   builder: 'working' | 'done' | 'blocked' | null
   // When the inspector's verdict arrived.
   doneAt: number | null
+  // The inspector whose verdict stands; null while open.
+  by: string | null
+  // A counted edit came after a FAIL: another inspector's pass may replace it.
+  mayReplace: boolean
 }
 
 export type BossLiveQuestion = {

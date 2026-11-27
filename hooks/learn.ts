@@ -22,8 +22,8 @@ export async function places($: $): Promise<Places | null> {
     const home = await $.env.get('HOME')
     const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (home === undefined ? undefined : `${home}/.claude`)
     if (dir === undefined) return null
-    // Claude Code names a project's folder after its path, every other character a dash.
-    const project = (await $.session.cwd()).replace(/[^a-zA-Z0-9]/g, '-')
+    // Claude Code names a project's folder after its root, every other character a dash; a shell cd moves no root.
+    const project = (await $.session.root()).replace(/[^a-zA-Z0-9]/g, '-')
     return { claudeMd: `${dir}/CLAUDE.md`, memory: `${dir}/projects/${project}/memory` }
   } catch {
     return null
@@ -78,7 +78,10 @@ export function withLessons(brief: string, lessons: string[]): string {
   return `${brief.trimEnd()}\n\nLESSONS (the user's standing rules, binding):\n${lessons.map(line => `- ${line}`).join('\n')}`
 }
 
-export const hasRepo = (brief: string) => /^\s*REPO\s*:\s*\/\S/m.test(brief)
+// Each REPO line's absolute path as written, note included: `REPO: /a`, `**REPO:** \`/a\``.
+export const repoLines = (brief: string) =>
+  [...brief.matchAll(/^\s*(?:\*\*)?REPO(?:\*\*)?\s*:(?:\*\*)?(.*)$/gm)].map(m => (m[1] ?? '').replace(/`/g, '').trim()).filter(line => line.startsWith('/'))
+export const hasRepo = (brief: string) => repoLines(brief).length > 0
 
 // The file a Write or Edit would leave; null when it can't be known (the tool then decides).
 export async function resultText($: $, call: object, path: string): Promise<string | null> {
@@ -94,33 +97,44 @@ export async function resultText($: $, call: object, path: string): Promise<stri
 
 const size = (text: string) => ({ lines: text.trim() === '' ? 0 : text.trim().split('\n').length, chars: text.length })
 
-// Which budget the new text breaks, in words; null within budget.
-export function overBudget(path: string, text: string, at: Places): string | null {
+// Which budget the new text breaks and makes worse than `before` (the file now, '' when new), in
+// words; null within budget, or when it shrinks a file already over.
+export function overBudget(path: string, text: string, at: Places, before = ''): string | null {
+  const worse = (now: { lines: number; chars: number }, was: { lines: number; chars: number }, maxLines: number, maxChars: number) =>
+    (now.lines > maxLines && now.lines > was.lines) || (now.chars > maxChars && now.chars > was.chars)
   if (path === at.claudeMd) {
     const lessons = section(text)
     if (lessons === null) return null
     const { lines, chars } = size(lessons.trim())
-    return lines > 40 || chars > 3000 ? `the Boss lessons section of CLAUDE.md may hold 40 lines and 3000 characters; this makes ${lines} lines, ${chars} characters` : null
+    const was = size((section(before) ?? '').trim())
+    return worse({ lines, chars }, was, 40, 3000) ? `the Boss lessons section of CLAUDE.md may hold 40 lines and 3000 characters; this makes ${lines} lines, ${chars} characters` : null
   }
   if (path === `${at.memory}/MEMORY.md`) {
     const { lines, chars } = size(text)
-    const long = text.split('\n').find(line => /\]\([^)]*\)/.test(line) && line.replace(/^.*?\]\([^)]*\)\s*/, '').length > 80)
-    if (lines > 50 || chars > 6000) return `MEMORY.md may hold 50 lines and 6000 characters; this makes ${lines} lines, ${chars} characters`
+    // A long line already in the file is not this write's: only a new one is refused.
+    const had = new Set(before.split('\n'))
+    const long = text.split('\n').find(line => !had.has(line) && /\]\([^)]*\)/.test(line) && line.replace(/^.*?\]\([^)]*\)\s*/, '').length > 80)
+    if (worse({ lines, chars }, size(before), 50, 6000)) return `MEMORY.md may hold 50 lines and 6000 characters; this makes ${lines} lines, ${chars} characters`
     return long === undefined ? null : 'each MEMORY.md line may hold 80 characters after its link'
   }
-  const body = text.replace(/^---\n[\s\S]*?\n---\n?/, '')
-  const { lines, chars } = size(body)
-  return lines > 25 || chars > 1500 ? `a memory topic file may hold 25 lines and 1500 characters, frontmatter not counted; this makes ${lines} lines, ${chars} characters` : null
+  const body = (one: string) => one.replace(/^---\n[\s\S]*?\n---\n?/, '')
+  const { lines, chars } = size(body(text))
+  return worse({ lines, chars }, size(body(before)), 25, 1500)
+    ? `a memory topic file may hold 25 lines and 1500 characters, frontmatter not counted; this makes ${lines} lines, ${chars} characters`
+    : null
 }
 
 // What this turn did that the reply checks need.
 type Turn = { asked: boolean; wroteMemory: boolean }
 
-// The reason to send the reply back once, or null. Code is left out: a quoted rule is not an ask.
+// A reply with its fenced and inline code left out: a quoted rule is not an ask.
+export const withoutCode = (answer: string) => answer.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
+
+// The reason to send the reply back once, or null.
 export function replyProblem(answer: string, turn: Turn): string | null {
-  const prose = answer.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
+  const prose = withoutCode(answer)
   if (/Reply\s+["“]?go\b/.test(prose) && !/^\s*1\.\s.*\?/m.test(prose) && !turn.asked) return ASK_NUMBERED
-  const claims = /\((?:learned|noted)\b(?!\s*:\s*(?:none|nothing)\b)|saved (?:it |this |that )?to memory|I['’]ve saved\b[^.\n]{0,40}\b(?:memory|lesson|preference|rule)/i
+  const claims = /\((?:learned|noted)\s*:(?!\s*(?:none|nothing)\b)|saved (?:it |this |that )?to memory|I['’]ve saved\b[^.\n]{0,40}\b(?:memory|lesson|preference|rule)/i
   if (claims.test(prose) && !turn.wroteMemory) return SAVE_FIRST
   return null
 }

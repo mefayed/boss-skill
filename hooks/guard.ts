@@ -1,18 +1,21 @@
-// Best-effort Bash reading for the boss-live guard. Unclear parses lean to allow.
+// Best-effort Bash reading for the boss-live guard. Unclear parses lean to allow, except a
+// write or delete target it cannot read (a $ or backtick left after the names it knows): refused.
 // shortcut: no $(...), backtick or alias expansion; upgrade if builders route around it.
 
-const SCRATCH = ['/private/tmp/claude-501/', '/tmp/claude-501/']
 const DEVICES = ['/dev/null', '/dev/stdout', '/dev/stderr', '/dev/tty']
 const WRAPPERS = ['sudo', 'env', 'command', 'nohup', 'exec', 'nice', 'xargs', 'timeout', 'time']
 const NOISE = ['{', '}', '(', ')', '!', 'then', 'do', 'else', 'elif', 'if', 'while', 'until']
+const NODE_INSTALLERS = ['npm', 'pnpm', 'yarn', 'bun']
 const GIT_DENY = ['push', 'commit', 'stash', 'restore', 'checkout', 'switch']
 const GIT_WRITES = ['add', 'rm', 'mv', 'apply', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull', 'init', 'clone']
 const INSTALLERS = ['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'brew', 'apt', 'apt-get', 'cargo', 'gem', 'go']
 const INSTALLS = ['install', 'i', 'add', 'ci', 'uninstall', 'remove', 'update', 'upgrade', 'get']
 
-type Segment = { words: string[]; outs: string[] }
-// Where a builder may write: the folder it runs in, its brief's REPO, and the session's scratchpad (null: unknown).
-export type Roots = { cwd: string; repo: string | null; scratch: string | null }
+export type Segment = { words: string[]; outs: string[] }
+// Where a builder may write: the folder it runs in, its brief's REPO folders, and the session's scratchpad (null: unknown).
+export type Roots = { cwd: string; repos: string[]; scratch: string | null }
+// What every lane's guard knows: the session's scratchpad and home folder (null: unknown), and where the shell starts.
+export type Where = { scratch?: string | null; home?: string | null; cwd?: string | null }
 
 // The absolute path with `.` and `..` resolved; null when relative with no cwd known.
 export function clean(path: string, cwd: string | null = null): string | null {
@@ -26,9 +29,15 @@ export function clean(path: string, cwd: string | null = null): string | null {
   return `/${parts.join('/')}`
 }
 
-export function inScratch(path: string, cwd: string | null = null): boolean {
-  const full = clean(path, cwd)
-  return full !== null && SCRATCH.some(root => full.startsWith(root) && full.length > root.length)
+// The clean path, or null for one the shell would change first: ~, $ or a backtick.
+const resolved = (path: string, cwd: string | null) => (path.startsWith('~') || /[$`]/.test(path) ? null : clean(path, cwd))
+
+// Inside the session's scratchpad; with none known, inside any /tmp/claude-N folder.
+export function inScratch(path: string, cwd: string | null = null, scratch: string | null = null): boolean {
+  const full = resolved(path, cwd)
+  if (full === null) return false
+  if (scratch === null) return /^\/(?:private\/)?tmp\/claude-\d+\/./.test(full)
+  return within(full, scratch)
 }
 
 // `path` (clean) is `root` or inside it; /tmp and /private/tmp are one folder on macOS.
@@ -40,14 +49,14 @@ export function within(path: string, root: string): boolean {
 
 // Inside the folder, the REPO or the scratchpad itself.
 export function inRoots(path: string, roots: Roots, cwd: string | null = roots.cwd): boolean {
-  const full = path.startsWith('~') ? null : clean(path, cwd)
+  const full = resolved(path, cwd)
   if (full === null) return false
   const under = (root: string) => within(full, root)
-  return under(roots.cwd) || (roots.repo !== null && under(roots.repo)) || (roots.scratch === null ? inScratch(full) : under(roots.scratch))
+  return under(roots.cwd) || roots.repos.some(under) || (roots.scratch === null ? inScratch(full) : under(roots.scratch))
 }
 
 // Splits on ; && || | & and newlines outside quotes, and pulls out `>` targets.
-function parse(command: string): Segment[] {
+export function parse(command: string): Segment[] {
   const segments: Segment[] = []
   let seg: Segment = { words: [], outs: [] }
   let word: string | null = null
@@ -146,7 +155,15 @@ function plain(args: string[]): string[] {
   return args.filter(arg => !arg.startsWith('-'))
 }
 
-function gitRule(args: string[], isReadOnly: boolean): string | null {
+// The folder a command works in: its -C, --prefix or --directory, else the shell's.
+function folderOf(args: string[], cwd: string | null): string | null {
+  const long = args.find(a => /^--(prefix|directory)=/.test(a))
+  if (long !== undefined) return long.slice(long.indexOf('=') + 1)
+  const at = args.findIndex(a => ['-C', '--prefix', '--directory'].includes(a))
+  return at >= 0 ? (args[at + 1] ?? null) : cwd
+}
+
+function gitRule(args: string[], isReadOnly: boolean, cwd: string | null, scratch: string | null): string | null {
   let i = 0
   while (i < args.length && (args[i] ?? '').startsWith('-')) {
     if (['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(args[i] ?? '')) i++
@@ -155,12 +172,22 @@ function gitRule(args: string[], isReadOnly: boolean): string | null {
   const sub = args[i]
   const rest = args.slice(i + 1)
   if (sub === undefined) return null
-  if (GIT_DENY.includes(sub)) return `run git ${sub}`
+  if (isReadOnly && args.some(a => /^--(git-dir|work-tree|separate-git-dir)\b/.test(a))) return 'point git at another folder'
+  const isStashRead = sub === 'stash' && ['list', 'show'].includes(rest[0] ?? '')
+  if (GIT_DENY.includes(sub) && !isStashRead) return `run git ${sub}`
   if (sub === 'reset' && rest.includes('--hard')) return 'run git reset --hard'
   if (sub === 'clean' && flagged(rest, a => a === '--force' || /^-[a-zA-Z]*f/.test(a))) return 'run git clean -f'
   if (sub === 'branch' && flagged(rest, a => /^-[a-zA-Z]*D/.test(a))) return 'run git branch -D'
   if (sub === 'worktree' && rest[0] === 'remove') return 'run git worktree remove'
   if (rest.some(a => a === '-f' || a.startsWith('--force'))) return `run git ${sub} with --force`
+  if (isReadOnly && (sub === 'apply' || sub === 'clone')) {
+    // Applied or cloned inside the scratchpad, a clone's folder included.
+    const folder = folderOf(args, cwd)
+    const into = folder === null ? null : clean(folder, cwd)
+    const named = sub === 'clone' ? plain(rest).slice(1).at(-1) : undefined
+    const isInside = folder !== null && inScratch(folder, cwd, scratch) && (named === undefined || inScratch(named, into, scratch))
+    return isInside ? null : `run git ${sub} outside the scratchpad`
+  }
   if (isReadOnly && GIT_WRITES.includes(sub)) return `run git ${sub}`
   return null
 }
@@ -226,7 +253,7 @@ function scriptFiles(args: string[], isSed: boolean): string[] {
 }
 
 // What a builder's command creates or changes on disk, for the REPO check.
-// shortcut: interpreter one-liners (python -c, node -e) and $VAR paths are not read; upgrade if builders route around it.
+// shortcut: interpreter one-liners (python -c, node -e) are not read; upgrade if builders route around it.
 function builderWrites(cmd: string, args: string[], files: string[]): string[] {
   if (['cp', 'install', 'ln'].includes(cmd)) return destination(args, files)
   // A remote rsync target (host:path) leaves the machine: never inside.
@@ -239,9 +266,27 @@ function builderWrites(cmd: string, args: string[], files: string[]): string[] {
   return []
 }
 
-function commandRule(words: string[], outs: string[], isReadOnly: boolean, cwd: string | null, roots: Roots | null = null): string | null {
-  const outside = (paths: string[]) => paths.some(p => !inScratch(p, cwd))
-  if (isReadOnly && outs.some(p => !DEVICES.includes(p) && !inScratch(p, cwd))) return 'write files outside the scratchpad'
+// What a command's guard reads besides its words: the shell's folder, the roots, and the
+// names a loop set that cannot be known, and the word that left the folder unknown.
+type Ctx = { isReadOnly: boolean; cwd: string | null; roots: Roots | null; scratch: string | null; home: string | null; loops: Set<string>; lost: string | null }
+
+const LOOP = (name: string) =>
+  `boss-live: this loop writes to a path built from \`$${name}\` that cannot be checked; use a \`for ${name} in <files>\` loop with literal words or a relative glob`
+const LITERAL = (word: string) => `boss-live: this command writes to a path built from \`${word}\` that cannot be checked; use a literal path`
+
+// A refusal for a target the shell would build from what the guard cannot know; null when none is.
+function unknownTarget(targets: string[], ctx: Ctx): string | null {
+  for (const target of targets) {
+    const left = /\$\{?(\w+)\}?|\$\(|`/.exec(target)
+    if (left !== null) return left[1] !== undefined && ctx.loops.has(left[1]) ? LOOP(left[1]) : LITERAL(left[0])
+    if (ctx.cwd === null && ctx.lost !== null && !target.startsWith('/') && !target.startsWith('~')) return LITERAL(ctx.lost)
+  }
+  return null
+}
+
+function commandRule(words: string[], outs: string[], ctx: Ctx): string | null {
+  const { isReadOnly, cwd, roots, scratch } = ctx
+  const outside = (paths: string[]) => paths.some(p => !inScratch(p, cwd, scratch))
 
   let i = 0
   while (i < words.length) {
@@ -258,18 +303,22 @@ function commandRule(words: string[], outs: string[], isReadOnly: boolean, cwd: 
   const args = words.slice(i + 1).map(a => a.replace(/\)+$/, ''))
   const files = plain(args).filter(a => a !== '--')
   const targets = [...outs, ...(cmd === 'tee' ? files : []), ...builderWrites(cmd, args, files)].filter(p => !DEVICES.includes(p))
+  const unknown = unknownTarget([...targets, ...(cmd === 'rm' ? files : [])], ctx)
+  if (unknown !== null) return unknown
+  if (isReadOnly && (cmd === 'export' ? args : words.slice(0, i)).some(w => /^GIT_(DIR|WORK_TREE)=/.test(w))) return 'point git at another folder'
+  if (isReadOnly && outs.some(p => !DEVICES.includes(p) && !inScratch(p, cwd, scratch))) return 'write files outside the scratchpad'
   if (roots !== null && targets.some(p => !inRoots(p, roots, cwd))) return 'write files outside REPO and the scratchpad'
 
   if (['sh', 'bash', 'zsh'].includes(cmd)) {
     const at = args.findIndex(a => /^-[a-z]*c$/.test(a))
-    return at >= 0 ? bashRule(args[at + 1] ?? '', isReadOnly, roots, cwd) : null
+    return at >= 0 ? bashRule(args[at + 1] ?? '', isReadOnly, roots, { scratch, home: ctx.home, cwd }) : null
   }
   if (cmd === 'find') {
     const at = args.findIndex(a => ['-exec', '-execdir', '-ok'].includes(a))
-    if (at >= 0) return commandRule(args.slice(at + 1), [], isReadOnly, cwd, roots)
+    if (at >= 0) return commandRule(args.slice(at + 1), [], ctx)
     return isReadOnly && args.includes('-delete') ? 'run find -delete' : null
   }
-  if (cmd === 'git') return gitRule(args, isReadOnly)
+  if (cmd === 'git') return gitRule(args, isReadOnly, cwd, scratch)
   if (cmd === 'gh') return ghRule(args)
   if (cmd === 'curl' || cmd === 'wget') return curlRule(cmd, args)
   if (cmd === 'rm') {
@@ -286,33 +335,124 @@ function commandRule(words: string[], outs: string[], isReadOnly: boolean, cwd: 
   if (cmd === 'cp') {
     const target = args[args.indexOf('-t') + 1]
     const dest = args.includes('-t') ? target : files.at(-1)
-    if (dest !== undefined && !inScratch(dest, cwd)) return 'copy files outside the scratchpad'
+    if (dest !== undefined && !inScratch(dest, cwd, scratch)) return 'copy files outside the scratchpad'
   }
-  if (cmd === 'sed' && flagged(args, a => /^-[a-zA-Z]*i/.test(a) || a.startsWith('--in-place'))) return 'run sed -i'
-  if (cmd === 'perl' && flagged(args, a => /^-[a-zA-Z]*i/.test(a))) return 'run perl -i'
-  if (INSTALLERS.includes(cmd) && INSTALLS.includes(args[0] ?? '')) return 'install packages'
+  const isInPlace = flagged(args, a => /^-[a-zA-Z]*i/.test(a) || (cmd === 'sed' && a.startsWith('--in-place')))
+  if ((cmd === 'sed' || cmd === 'perl') && isInPlace && outside(scriptFiles(args, cmd === 'sed'))) return `run ${cmd} -i outside the scratchpad`
+  const verb = args.find((a, k) => !a.startsWith('-') && !['-C', '--prefix', '--directory'].includes(args[k - 1] ?? ''))
+  if (INSTALLERS.includes(cmd) && INSTALLS.includes(verb ?? '')) {
+    // A project's own packages, put in a folder inside the scratchpad, may install.
+    const folder = folderOf(args, cwd)
+    const isLocal = NODE_INSTALLERS.includes(cmd) && !args.some(a => a === '-g' || a === '--global')
+    return isLocal && folder !== null && inScratch(folder, cwd, scratch) ? null : 'install packages outside the scratchpad'
+  }
 
   return null
 }
 
-// What the command may not do, as "run git push", or null when it may run.
-// `roots`, for a builder: `>`, `>>` and `tee` must land inside them. `cwd`: where the shell
-// starts, apart from the roots, so a `cd` never widens them.
-export function bashRule(command: string, isReadOnly: boolean, roots: Roots | null = null, cwd: string | null = roots?.cwd ?? null): string | null {
-  for (const { words, outs } of parse(command)) {
-    if (words[0] === 'cd' || words[0] === 'pushd') {
-      const to = words[1] ?? ''
-      // A bare `cd`, `cd -`, `cd ~` or `cd $X` leaves the folder unknown, so relative writes after it are outside.
-      cwd = to.startsWith('/') ? to : cwd === null || to === '' || to === '-' || /^[~$]/.test(to) ? null : `${cwd}/${to}`
+// Each way the words read with the names the command bound (a for loop's name takes each of
+// its words in turn); a name never bound, or bound to too many choices, stays as written.
+const NAME = /\$\(pwd\)|\$\{(\w+)\}|\$(\w+)/g
+function readings(words: string[], known: (name: string) => string[] | undefined): string[][] {
+  const names = [...new Set(words.flatMap(w => [...w.matchAll(NAME)].map(m => m[1] ?? m[2] ?? 'PWD')))]
+  let picks = [new Map<string, string>()]
+  for (const name of names) {
+    const values = known(name)
+    if (values !== undefined) picks = picks.flatMap(pick => values.map(v => new Map([...pick, [name, v]])))
+    if (picks.length > 256) return [words]
+  }
+  return picks.map(pick => words.map(w => w.replace(NAME, (all, a?: string, b?: string) => pick.get(a ?? b ?? 'PWD') ?? all)))
+}
+
+const isLiteral = (value: string) => !/[$`\s*?[~]/.test(value)
+// A for loop's word the guard can follow: a literal, or a relative glob that stays below the folder
+// (no `..`, and no `.*`, which some shells match to `..`).
+const isLoopWord = (word: string) =>
+  isLiteral(word) || (!/[$`\s~]/.test(word) && !word.startsWith('/') && !word.split('/').some(part => part === '..' || /^\.[^/]*[*?[]/.test(part)))
+
+// What the command may not do, as "run git push", or a whole refusal starting "boss-live:", or
+// null when it may run. `roots`, for a builder: what it writes must land inside them. `where.cwd`:
+// where the shell starts, apart from the roots, so a `cd` never widens them.
+export function bashRule(command: string, isReadOnly: boolean, roots: Roots | null = null, where: Where = {}): string | null {
+  let cwd = where.cwd !== undefined ? where.cwd : (roots?.cwd ?? null)
+  const scratch = roots?.scratch ?? where.scratch ?? null
+  const home = where.home ?? null
+  // Each name's values from a bare NAME=literal (null: forgotten), and its first assignment as written.
+  const vars = new Map<string, string[] | null>()
+  const said = new Map<string, string>()
+  const loops = new Set<string>()
+  let lost: string | null = null
+  const known = (name: string) =>
+    vars.has(name) ? (vars.get(name) ?? undefined) : name === 'PWD' && cwd !== null ? [cwd] : name === 'HOME' && home !== null ? [home] : undefined
+  // A second, different assignment forgets the name for good, inside a loop or not.
+  const bind = (name: string, as: string, values: string[] | null) => {
+    const isSecond = said.has(name) && (said.get(name) !== as || vars.get(name) === null)
+    if (!said.has(name)) said.set(name, as)
+    vars.set(name, isSecond || values === null || !values.every(isLiteral) ? null : values)
+  }
+  const forget = (name: string) => {
+    said.set(name, '')
+    vars.set(name, null)
+  }
+
+  for (const segment of parse(command)) {
+    let h = 0
+    while (NOISE.includes(segment.words[h] ?? '')) h++
+    const raw = segment.words.slice(h)
+    const first = raw[0] ?? ''
+    if (first === 'cd' || first === 'pushd') {
+      const tos = [...new Set(readings([raw[1] ?? ''], known).map(r => r[0] ?? ''))]
+      const to = tos.length === 1 ? (tos[0] ?? '') : '$'
+      // A bare `cd`, `cd -`, `cd ~` or a folder the guard cannot read leaves it unknown, so relative writes after it are outside.
+      const isUnknown = to === '' || to === '-' || /^~|[$`]/.test(to) || (!to.startsWith('/') && cwd === null)
+      // The word that left the folder unknown, kept while relative cds follow it.
+      lost = /[$`]/.test(to) ? (/\$\{?\w+\}?|\$\(|`/.exec(raw[1] ?? '')?.[0] ?? to) : isUnknown && !/^(~|-?$)/.test(to) ? lost : null
+      cwd = isUnknown ? null : to.startsWith('/') ? to : `${cwd}/${to}`
       continue
     }
     // popd goes back to a folder the stack holds, not one followed here.
-    if (words[0] === 'popd') {
+    if (first === 'popd') {
       cwd = null
+      lost = null
       continue
     }
-    const rule = commandRule(words, outs, isReadOnly, cwd, roots)
-    if (rule !== null) return rule
+    if (first === 'for') {
+      const name = raw[1] ?? ''
+      const words = raw[2] === 'in' ? raw.slice(3).flatMap(w => readings([w], known).map(r => r[0] ?? '')) : null
+      if (/^[A-Za-z_]\w*$/.test(name)) {
+        // A glob's matches lie where its fixed part points: one stand-in name per glob is checked.
+        if (words !== null && words.every(isLoopWord)) bind(name, `for ${raw.slice(3).join(' ')}`, words.map(w => w.replace(/[*?[\]]/g, 'x')))
+        else forget(name)
+        if (vars.get(name) === null) loops.add(name)
+      }
+      continue
+    }
+    if (first === 'read') {
+      for (const name of raw.slice(1).filter(w => /^[A-Za-z_]\w*$/.test(w))) {
+        forget(name)
+        loops.add(name)
+      }
+      continue
+    }
+    if (raw.length > 0 && segment.outs.length === 0 && raw.every(w => /^[A-Za-z_]\w*\+?=/.test(w))) {
+      for (const word of raw) {
+        const [, name = '', plus, value = ''] = /^([A-Za-z_]\w*)(\+?)=(.*)$/s.exec(word) ?? []
+        if (plus === '+') forget(name)
+        else bind(name, value, readings([value], known).map(r => r[0] ?? ''))
+      }
+      continue
+    }
+    if (['export', 'local', 'declare', 'typeset', 'readonly', 'unset'].includes(first)) {
+      for (const word of raw.slice(1)) {
+        const name = /^[A-Za-z_]\w*/.exec(word)?.[0]
+        if (name !== undefined) forget(name)
+      }
+    }
+    const parts = segment.words.length
+    for (const reading of readings([...segment.words, ...segment.outs], known)) {
+      const rule = commandRule(reading.slice(0, parts), reading.slice(parts), { isReadOnly, cwd, roots, scratch, home, loops, lost })
+      if (rule !== null) return rule
+    }
   }
 
   return null

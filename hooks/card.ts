@@ -27,7 +27,7 @@ export type CardModel = {
   doingAt: number | null
   clock: string | null
   task: string | null
-  team: { role: string; state: 'run' | 'done' }[]
+  team: { role: string; state: 'run' | 'done' | 'stopped' }[]
   proof: {
     test: string
     // At the right of the row: "1 of 4 proven", "Check 3 of 4 failed".
@@ -147,7 +147,7 @@ export function cardSvg(model: CardModel): string {
   }
 
   // Headline right: the team, then the clock.
-  const working = model.team.filter(member => member.state !== 'done').length
+  const working = model.team.filter(member => member.state === 'run').length
   let team: string
   let teamW: number
   if (model.team.length > 0 && (kind === 'done' || model.team.length > 3)) {
@@ -157,13 +157,13 @@ export function cardSvg(model: CardModel): string {
   } else {
     team = model.team
       .map((member, i) =>
-        member.state === 'done'
-          ? `<tspan class="t3"${i > 0 ? ' dx="12"' : ''}>✓ ${esc(member.role)}</tspan>`
+        member.state !== 'run'
+          ? `<tspan class="t3"${i > 0 ? ' dx="12"' : ''}>${member.state === 'stopped' ? '✗' : '✓'} ${esc(member.role)}</tspan>`
           : `<tspan class="t1" font-size="7" dy="-1.6"${i > 0 ? ' dx="12"' : ''}>●</tspan><tspan dy="1.6" dx="5">${esc(member.role)}</tspan>`,
       )
       .join('')
     // A name with its mark (the dot is 6 wide and 5 off), 12 between two.
-    teamW = model.team.reduce((sum, member, i) => sum + (i > 0 ? 12 : 0) + (member.state === 'done' ? widthOf(`✓ ${member.role}`, 12.5) : 11 + widthOf(member.role, 12.5)), 0)
+    teamW = model.team.reduce((sum, member, i) => sum + (i > 0 ? 12 : 0) + (member.state !== 'run' ? widthOf(`✓ ${member.role}`, 12.5) : 11 + widthOf(member.role, 12.5)), 0)
   }
   const clock = model.clock ?? ''
   if (team !== '' || clock !== '') {

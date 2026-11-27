@@ -4,6 +4,8 @@
 
 import type { BossLiveQuestion, BossLiveResult } from '../types'
 
+import { parse } from './guard'
+
 // A header may carry a note: `CONTRACT (all fail now):`.
 const HEADER = /^\s*(GOAL|FILES|CONTRACT|VERIFY|TOOLS|UNTOUCHED|DONE WHEN|FACTS|ASK|SCRATCH|BASELINE|REQUIRED|DETAIL|REPO|LESSONS)\b[^:\n]{0,80}:/
 const TEST = /FIRST HUMAN TEST\s*:\s*(.+)/
@@ -88,24 +90,25 @@ export function readQuestions(answer: string): BossLiveQuestion[] {
 const LOCAL_CLIS = ['ollama', 'lms', 'llama-cli']
 const OUTSIDE_CLIS = ['gemini', 'cursor-agent', 'opencode', 'kimi', 'qwen', 'llm', 'aider', 'glm']
 
-// The model a command runs through its own CLI, if any: `ollama run qwen3 < brief`.
+// The model a command runs through its own CLI, if any: `ollama run qwen3 < brief`. Only the
+// command a segment runs counts (its first word after wrappers, an interpreter's script, curl's
+// target), so reading, testing or searching for a model never makes a job.
 export function outsideRun(command: string): { lane: 'local' | 'outside'; model: string; script?: string } | null {
-  // Ollama's own server, called directly or through a small script (ask_ollama.py).
+  // The model Ollama's server or a small script (ask_ollama.py) is asked for, named anywhere.
   const tag = /\b([a-z][\w.-]*:(?:\d+(?:\.\d+)?[bmk]|latest|[\w.-]*\d+b[\w.-]*))\b/i.exec(command)?.[1]
   const body = /"model"\s*:\s*"([^"]+)"/.exec(command)?.[1]
-  if (/:11434\/api\/(generate|chat)\b/.test(command)) return { lane: 'local', model: body ?? tag ?? 'ollama' }
-  const script = /(?:^|\s)(\S*ollama\S*\.(?:py|mjs|js|ts|sh))\b/i.exec(command)?.[1]
-  if (script !== undefined) return { lane: 'local', model: tag ?? 'ollama', script: script.replace(/["']/g, '') }
-  for (const raw of command.split(/[;&|\n(]+/)) {
-    const words = raw.trim().split(/\s+/)
+  for (const { words } of parse(command)) {
     let i = 0
     while (i < words.length && (/^[A-Za-z_]\w*=/.test(words[i] ?? '') || ['nohup', 'exec', 'command', 'time'].includes(words[i] ?? ''))) i++
     if (['timeout', 'gtimeout'].includes(words[i] ?? '')) i += 2
-    const bin = (words[i] ?? '').split('/').pop() ?? ''
+    const bin = (words[i] ?? '').replace(/^\(+/, '').split('/').pop() ?? ''
     const args = words.slice(i + 1)
+    if (bin === 'curl' && args.some(a => /:11434\/api\/(generate|chat)\b/.test(a))) return { lane: 'local', model: body ?? tag ?? 'ollama' }
+    const script = /^(python[\d.]*|node|bun|sh|bash)$/.test(bin) ? args.find(a => !a.startsWith('-')) : undefined
+    if (script !== undefined && /ollama[^/]*\.(py|mjs|js|ts|sh)$/i.test(script)) return { lane: 'local', model: tag ?? 'ollama', script }
     const flag = args.findIndex(a => a === '--model' || a === '-m')
     const named = flag >= 0 ? args[flag + 1] : args.find(a => a.startsWith('--model='))?.slice(8)
-    if (bin === 'ollama' && args[0] === 'run' && args[1] !== undefined) return { lane: 'local', model: args[1].replace(/["']/g, '') }
+    if (bin === 'ollama' && args[0] === 'run' && args[1] !== undefined) return { lane: 'local', model: args[1] }
     if (LOCAL_CLIS.includes(bin) && bin !== 'ollama' && named !== undefined) return { lane: 'local', model: named }
     if (OUTSIDE_CLIS.includes(bin) && !['--help', '-h', '--version', 'models', 'login'].includes(args[0] ?? '')) {
       return { lane: 'outside', model: named ?? bin }

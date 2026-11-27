@@ -1826,3 +1826,899 @@ test('context and the usage limit show quietly left of the buttons, under the ca
     expect(await band($, surface)).toContain('Context 22% · 5h limit 18% · resets in 3h 41m')
   }
 })
+
+// --- Real boss flows: the main turn's start and end driven as the engine raises them. ---
+
+// A boss session whose main loop the test drives: no test leans on BAND's isWorking.
+function session(on: On, tool?: (e: { tool: string; command?: string; file_path?: string }) => unknown) {
+  const toasts: string[] = []
+  const clock = mock.clock(on)
+  on('agent.spawn', (_, e) => ({ model: 'claude-sonnet-4-5', agentId: `${e.description}-id` }))
+  on('tool.call', (_, e) => (tool === undefined ? { result: {} } : tool(e as never)) as never)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('classic.Stop', () => ({}))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  return { toasts, clock }
+}
+const begin = ($: Engine, turnId: string, text = '/boss add login') => $.turn.start({ text, turnId })
+const finish = ($: Engine, turnId: string, answer: string, reason: 'answer' | 'aborted' = 'answer') =>
+  $.turn.complete({ answer, durationMs: 1, isAborted: reason === 'aborted', turnId, reason })
+const aborted = (agentId: string) => ({ answer: '', durationMs: 1, isAborted: true, turnId: `x-${agentId}`, agentId, reason: 'aborted' }) as const
+// Typed at the prompt: with the running turn's id when typed over it.
+const typed = ($: Engine, text: string, turnId?: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' }, ...(turnId === undefined ? {} : { turnId }) })
+const notified = ($: Engine, text: string, turnId?: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' }, ...(turnId === undefined ? {} : { turnId }) })
+const UNCHECKED = 'VERDICT: NOT CHECKED\nCHECKS:\n- login route: NOT CHECKED — no logs'
+const LOGIN_FAILED = 'VERDICT: FAIL\nCHECKS:\n- login route: FAIL — setup `a`; `b` → 404'
+async function inspected($: Engine, description: string, answer: string) {
+  const id = await spawn($, 'boss:inspector', description, 'sonnet', 'ASK: x')
+  await $.turn.complete(done(answer, id))
+  return id
+}
+async function built($: Engine, description = 'Add login', brief = BRIEF) {
+  const id = await spawn($, 'boss:builder', description, 'sonnet', brief)
+  await $.turn.complete(done('STATUS: DONE', id))
+  return id
+}
+const edit = ($: Engine, file_path: string, agentId?: string) => $.tool.call({ tool: 'Edit', file_path, old_string: 'a', new_string: 'b', agentId })
+
+test('A1: a run boss checks itself settles as not checked when its turn ends; a later inspector joins it', async ($, on) => {
+  const { toasts, clock } = session(on)
+  await begin($, 'm1')
+  await built($)
+  expect((await card($))?.alt).toContain('Boss: Reviewing the work')
+  await finish($, 'm1', 'Login added. I ran the test myself: it passes.')
+  let drawn = await card($)
+  expect(drawn?.alt).toContain('Your test: open /signin, type the test user, land on the dashboard, not checked')
+  expect(drawn?.alt).not.toContain('Reviewing the work')
+  expect(drawn?.source).toContain('>Finished, not checked<')
+  expect(toasts).toEqual([])
+
+  await clock.advance(3 * 60_000)
+  await notified($, 'Agent "Add login" finished')
+  await begin($, 'm2', '<task-notification>Agent "Add login" finished</task-notification>')
+  const i = await spawn($, 'boss:inspector', 'Check login', 'sonnet', 'ASK: x')
+  drawn = await card($)
+  expect(drawn?.alt).toContain('Builder done')
+  expect(drawn?.alt).toContain('Inspector working')
+  expect(drawn?.alt).toContain('Task: add a login page')
+  await $.turn.complete(done(PASSED, i))
+  expect((await card($))?.alt).toContain('2 agents')
+  expect(toasts).toEqual(['Boss: proven 2/2'])
+})
+
+test('A1: a main turn that ends on a question mid-run is your turn, never "not checked"', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await finish($, 'm1', ASKING)
+  const alt = (await card($))?.alt ?? ''
+  expect(alt).toContain('Boss: Your turn')
+  expect(alt).not.toContain('not checked')
+})
+
+test('A2: an aborted builder is stopped and stuck, never proving or ticked, until a bounce clears it', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  await $.turn.complete(aborted(b))
+  let lines = await band($)
+  expect(lines).toContain('builder stuck')
+  expect(lines).not.toContain('built, being proven')
+  expect(lines).toContain('✗ Builder sonnet')
+  let drawn = await card($)
+  expect(drawn?.alt).toContain('Builder stopped')
+  expect(drawn?.alt).not.toContain('proving')
+  expect(drawn?.source).toContain('>✗ Builder stopped<')
+  expect(drawn?.source).not.toContain('✓')
+  expect(tone(drawn?.source)).toBe('failed')
+  expect(toasts).toEqual(['Boss: stopped'])
+
+  await resume($, 'boss:builder', 'Add login', 'Try again.')
+  await $.turn.start({ text: 'Try again.', turnId: 'r1', agentId: b })
+  drawn = await card($)
+  expect(drawn?.alt).toContain('Builder working')
+  expect(drawn?.alt).not.toContain('stopped')
+  await $.turn.complete(done('STATUS: DONE', b))
+  lines = await band($)
+  expect(lines).toContain('built, being proven')
+  expect(lines).toContain('✓ Builder sonnet')
+})
+
+test('A3: a message typed while the turn runs keeps the proven board and the task', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'Check login', PASSED)
+  await typed($, 'also add logout', 'm1')
+  const alt = (await card($))?.alt ?? 'NO CARD'
+  expect(alt).toContain('Boss: Done')
+  expect(alt).toContain('2 of 2 proven')
+  expect(alt).toContain('Task: add a login page')
+})
+
+test('O4: a message typed while a turn runs clears an old wait', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await finish($, 'm1', ASKING)
+  await notified($, 'Agent finished')
+  await begin($, 'm2', '<task-notification>Agent finished</task-notification>')
+  expect((await card($))?.alt).toContain('Boss: Your turn')
+  await typed($, 'use postgres', 'm2')
+  expect((await card($))?.alt).not.toContain('Your turn')
+})
+
+test('O4: a notification turn keeps the wait', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await finish($, 'm1', ASKING)
+  await notified($, 'Agent "Check" finished')
+  await begin($, 'm2', '<task-notification>Agent "Check" finished</task-notification>')
+  expect((await card($))?.alt).toContain('Boss: Your turn')
+})
+
+test('O4: a message typed over a turn that then asks waits; the queued turn that carries it ends the wait', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  await built($)
+  await typed($, 'use postgres', 'm1')
+  await finish($, 'm1', ASKING)
+  // The ask stands; its toast would only chase a message already sent.
+  expect((await card($))?.alt).toContain('Boss: Your turn')
+  expect(toasts).not.toContain('Boss needs your answer')
+  await begin($, 'm2', 'use postgres')
+  expect((await card($))?.alt).not.toContain('Your turn')
+})
+
+test('O4: a typed text ends one wait only; a later notification turn that contains it keeps the wait', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await typed($, 'go', 'm1')
+  await finish($, 'm1', 'Working on it.')
+  await begin($, 'm2', 'go')
+  await finish($, 'm2', ASKING)
+  expect((await card($))?.alt).toContain('Boss: Your turn')
+  await notified($, 'Agent "go" finished')
+  await begin($, 'm3', '<task-notification>Agent "go" finished</task-notification>')
+  expect((await card($))?.alt).toContain('Boss: Your turn')
+})
+
+test('O10: Go keeps the proof, the task and the team', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await finish($, 'm1', ASKING)
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  await ui.press({ key: 'go' })
+  await ui.unmount()
+  // The prompt Go submits, as the engine raises it through this plugin's own hooks.
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'plugin', name: 'boss', asUser: true } })
+  const alt = (await card($))?.alt ?? 'NO CARD'
+  expect(alt).not.toContain('Your turn')
+  expect(alt).toContain('Task: add a login page')
+  expect(alt).toContain('Builder done')
+  expect(alt).toContain('0 of 2 proven')
+})
+
+test('B1: an inspector woken for its second phase counts once', async ($, on) => {
+  const { clock } = session(on)
+  await begin($, 'm1')
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  await clock.advance(2 * 60_000)
+  await $.turn.complete(done('STATUS: DONE', b))
+  const i = await inspected($, 'Check login', 'FIRST HUMAN TEST: open /signin and log in')
+  await resume($, 'boss:inspector', 'Check login', 'CONTRACT: ...')
+  await $.turn.start({ text: 'phase 2', turnId: 'p2', agentId: i })
+  await $.turn.complete(done(PASSED, i))
+  const alt = (await card($))?.alt ?? ''
+  expect(alt).toContain('2 agents')
+  expect(alt).not.toContain('3 agents')
+})
+
+test('B2: a failed check, a bounce and a rebuild are being proven again, and a new pass ends green', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  const b = await built($)
+  await inspected($, 'Check login', FAILED)
+  await resume($, 'boss:builder', 'Add login', 'login route 404: fix it')
+  await $.turn.start({ text: 'login route 404: fix it', turnId: 'r1', agentId: b })
+  await $.turn.complete(done('STATUS: DONE', b))
+  const lines = await band($)
+  expect(lines).toContain('built, being proven')
+  expect((await card($))?.alt).not.toContain('Boss: Failed')
+  await inspected($, 'Check again', PASSED)
+  expect(tone((await card($))?.source)).toBe('done')
+  expect(toasts).toEqual(['Boss: failed — login route', 'Boss: proven 2/2'])
+})
+
+test('B4: after a pass, a builder with CONTRACT: none reopens the proof, and the card names its goal', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'Check login', PASSED)
+  await spawn($, 'boss:builder', 'Add logout', 'sonnet', 'GOAL: add a logout button\nFILES: src/logout.ts\nCONTRACT: none')
+  const lines = await band($)
+  expect(lines).not.toContain('passed')
+  expect(lines).toContain('not proven yet')
+  const alt = (await card($))?.alt ?? ''
+  expect(alt).toContain('Task: add a logout button')
+  expect(alt).toContain('0 of 2 proven')
+})
+
+test('B3: a builder woken minutes after the pass carries on the same run, its task kept', async ($, on) => {
+  const { clock } = session(on)
+  await begin($, 'm1')
+  const b = await built($)
+  await inspected($, 'Check login', PASSED)
+  await finish($, 'm1', 'Done: login works.')
+  await clock.advance(3 * 60_000)
+  await begin($, 'm2', '<task-notification>x</task-notification>')
+  // The woken run's start can come before the bounce settles.
+  await $.turn.start({ text: 'one more fix', turnId: 'r1', agentId: b })
+  const alt = (await card($))?.alt ?? ''
+  expect(alt).toContain('Task: add a login page')
+  expect(alt).toContain('Inspector done')
+  expect(alt).toContain('Builder working')
+})
+
+test('B5: a harvested Codex job is not finished again by its 45-minute limit', async ($, on) => {
+  const toasts: string[] = []
+  const clock = mock.clock(on)
+  on('tool.call', (_, e) => ({
+    result: { stdout: e.tool === 'Bash' && / task /.test(e.command) ? 'Codex Task started in the background as task-h-1.' : 'ok', stderr: '', interrupted: false },
+  }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  await $.tool.call({ tool: 'Bash', command: 'node $C task --cwd /s "review" --background' })
+  await clock.advance(5 * 60_000)
+  await $.tool.call({ tool: 'Bash', command: 'node $C result task-h-1 --cwd /s' })
+  expect(toasts).toEqual(['Boss finished: 1 agent, 5:00'])
+  await clock.advance(45 * 60_000)
+  expect(toasts).toEqual(['Boss finished: 1 agent, 5:00'])
+  expect(await card($)).toBeNull()
+})
+
+test('C1: the picker in a session that never ran boss draws no boss card', async ($, on) => {
+  mock.clock(on)
+  let seen: { alt: string } | null = null
+  on('tool.call', async (_, e) => {
+    if (e.tool === 'AskUserQuestion') seen = await card($)
+    return { result: {} }
+  })
+  const option = { label: 'Yes', description: 'x' }
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: 'Which?', header: 'H', options: [option, { label: 'No', description: 'y' }], multiSelect: false }] })
+  expect(seen).toBeNull()
+})
+
+test('C2: a reply that only quotes the Reply "go" rule in code is not your turn', async ($, on) => {
+  session(on)
+  await begin($, 'm1', 'how does boss ask?')
+  await finish($, 'm1', 'Boss ends each ask with the `Reply "go"` line, after numbered questions.')
+  expect(await card($)).toBeNull()
+})
+
+test('C3: the reply check stays out of a session that never ran boss', async ($, on) => {
+  session(on)
+  await begin($, 'm1', 'explain the flags')
+  const ran = await $.classic.Stop({ stop_hook_active: false, last_assistant_message: 'The two flags conflict (noted below), so I kept the default.' })
+  expect(ran.block).toBeUndefined()
+})
+
+// A boss session with a home folder, so memory files are known.
+const MEM = '/home/me/.claude/projects/-repo/memory'
+function boss(on: On, tool?: Parameters<typeof session>[1]) {
+  const run = session(on, tool)
+  mock.env(on, { HOME: '/home/me' })
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('session.root', () => ({ value: '/repo' }))
+  on('fs.exists', () => ({ value: false }))
+  on('classic.UserPromptSubmit', () => ({}))
+  return run
+}
+
+test('C4: a notification delivered mid-turn keeps what the turn already did', async ($, on) => {
+  boss(on)
+  await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
+  await begin($, 'm1', '/boss keep reports short from now on')
+  await $.tool.call({ tool: 'Write', file_path: `${MEM}/short-reports.md`, content: 'when reporting: keep it short' })
+  await notified($, 'Agent "x" finished', 'm1')
+  const stop = async () => (await $.classic.Stop({ stop_hook_active: false, last_assistant_message: 'Done. (learned: keep reports short)' })).block
+  expect(await stop()).toBeUndefined()
+  // A continuation starts with no text: still the same turn's work.
+  await begin($, 'm2', '')
+  expect(await stop()).toBeUndefined()
+})
+
+test('C5: the memory budget guard stays out of a session that never ran boss', async ($, on) => {
+  boss(on)
+  const big = `---\nname: t\n---\n${'line\n'.repeat(40)}`
+  expect((await $.tool.call({ tool: 'Write', file_path: `${MEM}/notes.md`, content: big })).deny).toBeUndefined()
+})
+
+// Codex as boss launches it, by its full path.
+const COMPANION = 'node /x/codex-companion.mjs'
+test('D1: a Codex task sent to the background is one job', async ($, on) => {
+  const { toasts, clock } = session(on, e => ({
+    result: { stdout: e.tool === 'Bash' && / task /.test(e.command ?? '') ? 'Codex Task started in the background as task-abc-1.' : 'ok', stderr: '', interrupted: false },
+  }))
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd /s "review" --background`, tool_use_id: 'tu1' } as never)
+  const alt = (await card($))?.alt ?? ''
+  expect(alt.match(/Codex (working|done)/g)?.length).toBe(1)
+  await clock.advance(5 * 60_000)
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} result task-abc-1 --cwd /s` })
+  expect(toasts).toEqual(['Boss finished: 1 agent, 5:00'])
+})
+
+test('D2: adversarial-review is a Codex job, and it does not end the oldest one; result <id> still does', async ($, on) => {
+  let during = ''
+  session(on, async e => {
+    if (e.tool === 'Bash' && e.command?.includes('adversarial-review') === true) during = (await card($))?.alt ?? ''
+    return { result: { stdout: e.tool === 'Bash' && / task /.test(e.command ?? '') ? 'Codex Task started in the background as task-old-1.' : 'ok', stderr: '', interrupted: false } }
+  })
+  await $.tool.call({ tool: 'Bash', command: 'node $C task --cwd /s "design" --background' })
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} adversarial-review --base main --cwd /s` })
+  expect(during.match(/Codex working/g)?.length).toBe(2)
+  expect((await card($))?.alt).toContain('Codex working')
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} result task-old-1 --cwd /s` })
+  expect(await card($)).toBeNull()
+})
+
+test('D2: a Codex task Bash runs in the background stays until its output is read', async ($, on) => {
+  session(on, e => ({
+    result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: e.tool === 'Bash' && e.command?.includes(' task ') === true ? 'bk7' : undefined },
+  }))
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd /s "review"`, run_in_background: true, tool_use_id: 'tu9' } as never)
+  expect((await card($))?.alt).toContain('Codex working')
+  await $.tool.call({ tool: 'Read', file_path: '/tmp/tasks/bk7.output' })
+  expect(await card($)).toBeNull()
+})
+
+test('D3: a read-only Codex review draws on Check, a Codex build on Build', async ($, on) => {
+  session(on, e => ({
+    result: { stdout: e.tool === 'Bash' && / task /.test(e.command ?? '') ? `Codex Task started in the background as ${e.command?.includes('--write') === true ? 'task-w' : 'task-r'}.` : 'ok', stderr: '', interrupted: false },
+  }))
+  await $.tool.call({ tool: 'Bash', command: 'node $C task --cwd /s "review the diff" --background' })
+  expect((await card($))?.alt).toContain('Steps: Plan skipped, Build skipped, Check now, Done next')
+  await $.tool.call({ tool: 'Bash', command: 'node $C result task-r --cwd /s' })
+  await $.tool.call({ tool: 'Bash', command: 'node $C task --write --cwd /s "build it" --background' })
+  expect((await card($))?.alt).toContain('Steps: Plan skipped, Build now, Check next, Done next')
+})
+
+test('F1: an agent busy in one long tool call is not quiet', async ($, on) => {
+  let release = () => undefined as void
+  const { toasts, clock } = session(on, e =>
+    e.tool === 'Bash' && e.command === 'npm test' ? new Promise(resolve => (release = () => resolve({ result: { stdout: '', stderr: '', interrupted: false } }))) : { result: {} },
+  )
+  const b = await spawn($, 'boss:builder', 'Build', 'haiku')
+  await card($)
+  const running = $.tool.call({ tool: 'Bash', command: 'npm test', agentId: b })
+  await clock.advance(4 * 60_000)
+  expect(toasts).toEqual([])
+  release()
+  await running
+})
+
+test('F3: a hidden card fires no quiet toast and runs no ticker', async ($, on) => {
+  const { toasts, clock } = session(on)
+  const b = await spawn($, 'boss:builder', 'Build', 'haiku')
+  const ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  await ui.press({ key: 'hide' })
+  await ui.unmount()
+  await card($)
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts', agentId: b })
+  await clock.advance(5 * 60_000)
+  expect(toasts).toEqual([])
+})
+
+test('F4: a failed or unchecked verdict reads the same in the picture, its alt and the terminal', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'Check login', FAILED)
+  expect((await card($))?.alt).toContain('Steps: Plan skipped, Build done, Check failed, Done next')
+  expect(await band($)).toContain(' › ✗ Check')
+  await typed($, 'next')
+  await built($, 'Add login 2')
+  await inspected($, 'Check login 2', UNCHECKED)
+  expect((await card($))?.alt).toContain('Steps: Plan skipped, Build done, Check open, Done next')
+  await typed($, 'next')
+  const b = await spawn($, 'boss:builder', 'Add login 3', 'sonnet', BRIEF)
+  await edit($, '/repo/src/login.ts', b)
+  await $.turn.complete(done('STATUS: DONE', b))
+  await inspected($, 'Check login 3', PASSED)
+  await edit($, '/repo/src/login.ts')
+  expect((await card($))?.alt).toContain('Steps: Plan skipped, Build done, Check open, Done next')
+  // A stale pass is no longer green in the terminal either.
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const head = await ui.find({ text: ' BOSS ' })
+  await ui.unmount()
+  expect((head?.props as { backgroundColor?: string }).backgroundColor).not.toBe('success')
+})
+
+test('F5: an edit that failed is not counted, and neither is a memory write that failed', async ($, on) => {
+  boss(on, e => (e.file_path?.includes('broken') === true ? { isError: true, result: 'EACCES' } : { result: {} }))
+  const b = await spawn($, 'boss:builder', 'Add login', 'haiku', BRIEF)
+  await edit($, '/repo/src/broken.ts', b)
+  expect((await card($))?.alt).not.toContain('Editing 1 file')
+  await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
+  await begin($, 'm1', 'keep it short from now on')
+  await $.tool.call({ tool: 'Write', file_path: `${MEM}/broken.md`, content: 'when x: y' })
+  expect((await $.classic.Stop({ stop_hook_active: false, last_assistant_message: 'Done. (learned: keep it short)' })).block).toBe('Write the lesson and read it back before saying it is saved.')
+})
+
+// Proof lifecycle: which verdict stands when inspectors disagree.
+test('v6: A PASS then B NOT CHECKED reads not checked', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', PASSED)
+  await inspected($, 'B', UNCHECKED)
+  expect((await card($))?.alt).toContain('not checked')
+  expect(toasts.at(-1)).toBe('Boss: not checked')
+})
+
+test('v6: A PASS then B FAIL is red', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', PASSED)
+  await inspected($, 'B', LOGIN_FAILED)
+  expect(tone((await card($))?.source)).toBe('failed')
+})
+
+test('v6: A FAIL then B PASS with no edit stays red', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await inspected($, 'B', PASSED)
+  expect(tone((await card($))?.source)).toBe('failed')
+  expect(toasts).toEqual(['Boss: failed — login route'])
+})
+
+test('v6: A FAIL, a counted edit, then B PASS is green', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await edit($, '/repo/src/login.ts')
+  await inspected($, 'B', PASSED)
+  expect(tone((await card($))?.source)).toBe('done')
+})
+
+test('v6: a subtask not checked, then the final inspector passing with no edit, is green and proven', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'Subtask', UNCHECKED)
+  await inspected($, 'Final', PASSED)
+  expect(tone((await card($))?.source)).toBe('done')
+  expect(toasts.at(-1)).toBe('Boss: proven 2/2')
+})
+
+test('pin 2: NOT CHECKED from another inspector keeps the first rows; from the same one takes its new rows', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', PASSED)
+  await inspected($, 'B', UNCHECKED)
+  expect((await card($))?.alt).toContain('1 of 2 proven')
+  await typed($, 'next')
+  await begin($, 'm2')
+  await built($, 'Add login 2')
+  const a = await inspected($, 'A2', PASSED)
+  await $.turn.start({ text: 'again', turnId: 'a2', agentId: a })
+  await $.turn.complete(done(UNCHECKED, a))
+  expect((await card($))?.alt).toContain('0 of 1 proven')
+})
+
+test('pin 4: the day counts a run once when its verdict changes', async ($, on) => {
+  session(on)
+  const store = new Map<string, unknown>()
+  on('store.get', (_, e) => ({ value: store.get(e.key) }))
+  on('store.set', (_, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: [...store.keys()] }))
+  on('store.delete', (_, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await edit($, '/repo/src/login.ts')
+  await inspected($, 'B', PASSED)
+  expect([...store.values()][0]).toMatchObject({ runs: 1, proven: 1 })
+})
+
+// Counted edits: only a builder's or boss's own change to the project lets a pass replace a failure.
+test('edits: after a FAIL, boss writing in the scratchpad does not let another inspector pass it', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await $.tool.call({ tool: 'Write', file_path: '/private/tmp/claude-501/p/s1/scratchpad/run.md', content: 'x' })
+  await inspected($, 'B', PASSED)
+  expect(tone((await card($))?.source)).toBe('failed')
+})
+
+test('edits: a lesson write neither stales a pass nor lets a pass replace a failure', async ($, on) => {
+  boss(on)
+  await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', PASSED)
+  await $.tool.call({ tool: 'Write', file_path: `${MEM}/lesson.md`, content: 'when x: y' })
+  expect(tone((await card($))?.source)).toBe('done')
+  await typed($, 'next')
+  await begin($, 'm2')
+  await built($, 'Add login 2')
+  await inspected($, 'B', FAILED)
+  await $.tool.call({ tool: 'Write', file_path: `${MEM}/lesson2.md`, content: 'when x: y' })
+  await inspected($, 'C', PASSED)
+  expect(tone((await card($))?.source)).toBe('failed')
+})
+
+test('edits: after a FAIL, an inspector writing in the scratchpad cannot pass its own rerun', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  const i = await spawn($, 'boss:inspector', 'B', 'sonnet', 'ASK: x')
+  await $.tool.call({ tool: 'Write', file_path: '/private/tmp/claude-501/p/s1/scratchpad/helper.py', content: 'x', agentId: i })
+  await $.turn.complete(done(PASSED, i))
+  expect(tone((await card($))?.source)).toBe('failed')
+})
+
+test('edits: after a FAIL, boss editing a repo file lets a fresh inspector pass it', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await edit($, '/repo/src/login.ts')
+  await inspected($, 'B', PASSED)
+  expect(tone((await card($))?.source)).toBe('done')
+})
+
+test('edits: after a FAIL, a takeover builder with no contract lets a fresh inspector pass it', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await built($, 'Take over', 'GOAL: fix the login route')
+  await inspected($, 'B', PASSED)
+  expect(tone((await card($))?.source)).toBe('done')
+})
+
+test('edits: after a PASS, a builder still at work editing a repo file asks for a re-check', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  const y = await spawn($, 'boss:builder', 'Add logout', 'sonnet', 'GOAL: add logout')
+  await inspected($, 'A', PASSED)
+  await edit($, '/repo/src/logout.ts', y)
+  expect(await band($)).toContain('Re-check needed')
+})
+
+test('edits: after a PASS, boss editing a file the pass did not prove stays green', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', PASSED)
+  await edit($, '/repo/src/other.ts')
+  expect(tone((await card($))?.source)).toBe('done')
+})
+
+test('reload: a background outside run gets its 10 minutes again', async ($, on) => {
+  const clock = mock.clock(on)
+  on('tool.call', (_, e) => ({ result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: e.tool === 'Bash' ? 'bk1' : undefined } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }) as never)
+  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  await $.tool.call({ tool: 'Bash', command: 'ollama run qwen3:8b < brief.md > out.txt 2>&1 &' })
+  await $.session.start({ cwd: '/repo', surface: 'vscode' } as never)
+  expect((await card($))?.alt).toContain('Local model working')
+  await clock.advance(10 * 60_000)
+  expect(await card($)).toBeNull()
+})
+
+// The flows boss really runs, end to end.
+test('flow 1: build, inspect, pass, a typed note, a bounce, a failure, a rebuild, a pass', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  const b = await built($)
+  await inspected($, 'Check login', PASSED)
+  expect(tone((await card($))?.source)).toBe('done')
+  await typed($, 'also keep the old route', 'm1')
+  expect(tone((await card($))?.source)).toBe('done')
+  await resume($, 'boss:builder', 'Add login', 'Keep the old route too.')
+  await $.turn.start({ text: 'Keep the old route too.', turnId: 'r1', agentId: b })
+  expect(await band($)).toContain('not proven yet')
+  await $.turn.complete(done('STATUS: DONE', b))
+  expect(await band($)).toContain('built, being proven')
+  await inspected($, 'Check again', FAILED)
+  expect(tone((await card($))?.source)).toBe('failed')
+  await resume($, 'boss:builder', 'Add login', 'login route 404: fix it')
+  await $.turn.start({ text: 'fix it', turnId: 'r2', agentId: b })
+  await edit($, '/repo/src/login.ts', b)
+  await $.turn.complete(done('STATUS: DONE', b))
+  await inspected($, 'Check the fix', PASSED)
+  await finish($, 'm1', 'Done: login works, old route kept.')
+  const drawn = await card($)
+  expect(tone(drawn?.source)).toBe('done')
+  expect(drawn?.alt).toContain('4 agents')
+  expect(drawn?.alt).toContain('Task: add a login page')
+  expect(toasts).toEqual(['Boss: proven 2/2', 'Boss: failed — login route', 'Boss: proven 2/2'])
+})
+
+test('flow 2: boss checks the work itself, then Esc', async ($, on) => {
+  const { toasts, clock } = session(on)
+  await begin($, 'm1')
+  await built($)
+  const i = await spawn($, 'boss:inspector', 'Check login', 'sonnet', 'ASK: x')
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  await $.turn.complete(aborted(i))
+  await finish($, 'm1', '', 'aborted')
+  await clock.advance(10 * 60_000)
+  const drawn = await card($)
+  expect(drawn?.alt).not.toContain('Reviewing the work')
+  expect(drawn?.alt).toContain('not checked')
+  expect(drawn?.alt).toContain('Inspector stopped')
+  expect(toasts).toEqual(['Boss: stopped'])
+})
+
+test('flow 3: an aborted builder, then a retry by a new builder', async ($, on) => {
+  session(on)
+  await begin($, 'm1')
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  await $.turn.complete(aborted(b))
+  expect(await band($)).toContain('builder stuck')
+  await built($, 'Retry login')
+  expect(await band($)).toContain('built, being proven')
+  await inspected($, 'Check login', PASSED)
+  await finish($, 'm1', 'Done.')
+  const drawn = await card($)
+  expect(tone(drawn?.source)).toBe('done')
+  expect(drawn?.alt).toContain('Builder stopped. Builder done. Inspector done')
+})
+
+test('flow 4: a Codex job in the background, its harvest, then its 45-minute limit', async ($, on) => {
+  const { toasts, clock } = session(on, e => ({
+    result: { stdout: e.tool === 'Bash' && / task /.test(e.command ?? '') ? 'Codex Task started in the background as task-f-4.' : 'ok', stderr: '', interrupted: false },
+  }))
+  await begin($, 'm1', '/boss second opinion on the diff')
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd /s "review" --background`, tool_use_id: 'tu4' } as never)
+  expect(((await card($))?.alt ?? '').match(/Codex (working|done)/g)?.length).toBe(1)
+  await finish($, 'm1', 'Codex is reviewing; I will read it when it is done.')
+  expect((await card($))?.alt).toContain('Codex working')
+  await clock.advance(5 * 60_000)
+  await begin($, 'm2', '<task-notification>Codex finished</task-notification>')
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} result task-f-4 --cwd /s` })
+  expect(await card($)).toBeNull()
+  await clock.advance(45 * 60_000)
+  expect(toasts).toEqual(['Boss finished: 1 agent, 5:00'])
+})
+
+test('flow 5: a message delivered into the turn, which then asks, is your turn', async ($, on) => {
+  const { toasts } = session(on)
+  await begin($, 'm1')
+  await built($)
+  await typed($, 'what about logout?', 'm1')
+  await finish($, 'm1', ASKING)
+  expect((await card($))?.alt).toContain('Boss: Your turn')
+  expect(toasts).not.toContain('Boss needs your answer')
+})
+
+test('flow 6: parallel units, A passes, B fails, boss fixes it, a fresh inspector passes', async ($, on) => {
+  session(on)
+  const UNIT_B = 'GOAL: add logout\nFILES: src/logout.ts\nCONTRACT:\n- logout route returns 200'
+  await begin($, 'm1')
+  const x = await spawn($, 'boss:builder', 'Unit A', 'sonnet', BRIEF)
+  const y = await spawn($, 'boss:builder', 'Unit B', 'sonnet', UNIT_B)
+  await $.turn.complete(done('STATUS: DONE', x))
+  await $.turn.complete(done('STATUS: DONE', y))
+  await inspected($, 'Check A', PASSED)
+  await inspected($, 'Check B', 'VERDICT: FAIL\nCHECKS:\n- logout route returns 200: FAIL — setup `a`; `b` → 404')
+  let drawn = await card($)
+  expect(tone(drawn?.source)).toBe('failed')
+  expect(drawn?.alt).toContain('2 of 3 proven')
+  await edit($, '/repo/src/logout.ts')
+  await inspected($, 'Check again', 'VERDICT: PASS\nCHECKS:\n- login route: PASS — ok\n- signin page: PASS — ok\n- logout route returns 200: PASS — ok')
+  drawn = await card($)
+  expect(tone(drawn?.source)).toBe('done')
+  expect(drawn?.alt).toContain('3 of 3 proven')
+})
+
+// Subtask 2: the Bash guard reads the session's scratchpad, variables, loops and every REPO line.
+const S2 = SCRATCH
+const LITERAL = 'use a literal path'
+const loopDeny = (name: string) =>
+  `boss-live: this loop writes to a path built from \`$${name}\` that cannot be checked; use a \`for ${name} in <files>\` loop with literal words or a relative glob`
+
+test('E1: every lane writes only in this session\'s scratchpad; with none known, any claude scratch folder', async ($, on) => {
+  desk(on)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const write = async (file_path: string) => (await $.tool.call({ tool: 'Write', file_path, content: 'x', agentId: i })).deny
+
+  expect(await write(`${S2}/notes.md`)).toBeUndefined()
+  expect(await write('/private/tmp/claude-501/other/notes.md')).toContain('write files outside the scratchpad')
+  expect(await bash($, 'echo x > /private/tmp/claude-501/other/r.txt', i)).toContain('outside the scratchpad')
+  expect(await bash($, `echo x > ${S2}/r.txt`, i)).toBeUndefined()
+})
+
+test('E1: with no scratchpad known, a read-only lane may write in any claude-N scratch folder', async ($, on) => {
+  engine(on)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  expect(await bash($, 'echo x > /private/tmp/claude-777/s/r.txt', i)).toBeUndefined()
+  expect(await bash($, 'echo x > /private/tmp/other/r.txt', i)).toContain('outside the scratchpad')
+})
+
+test('E2: a read-only lane edits, installs, applies and clones only inside its scratchpad', async ($, on) => {
+  desk(on)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const run = (command: string) => bash($, command, i)
+
+  expect(await run(`sed -i '' s/a/b/ ${S2}/x/f.ts`)).toBeUndefined()
+  expect(await run(`perl -pi -e 's/a/b/' ${S2}/x/f.ts`)).toBeUndefined()
+  expect(await run(`sed -i '' s/a/b/ ${S2}/x/f.ts /repo/f.ts`)).toContain('sed -i')
+  expect(await run(`cd ${S2}/x && npm ci`)).toBeUndefined()
+  expect(await run(`npm --prefix ${S2}/x ci`)).toBeUndefined()
+  expect(await run(`npm --prefix /repo install left-pad`)).toContain('install')
+  expect(await run(`npm ci --prefix ${S2}/x`)).toBeUndefined()
+  expect(await run('npm ci')).toContain('install')
+  expect(await run(`cd ${S2}/x && npm install -g left-pad`)).toContain('install')
+  expect(await run(`cd ${S2}/x && pip install left-pad`)).toContain('install')
+  expect(await run(`git -C ${S2}/x apply p.diff`)).toBeUndefined()
+  expect(await run(`cd ${S2}/x && git -C /repo apply p.diff`)).toContain('git apply')
+  expect(await run(`cd ${S2} && git clone https://x.test/r.git r2`)).toBeUndefined()
+  expect(await run(`cd ${S2} && git clone https://x.test/r.git /repo/r2`)).toContain('git clone')
+  expect(await run('git apply p.diff')).toContain('git apply')
+})
+
+test('E2: a read-only lane may not point git at another folder; git stash list and show still read', async ($, on) => {
+  desk(on)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+  const run = (command: string) => bash($, command, i)
+
+  expect(await run(`cd ${S2}/x && git --git-dir=/repo/.git --work-tree=. apply p.diff`)).toContain('may not')
+  expect(await run(`cd ${S2}/x && git --work-tree /repo status`)).toContain('may not')
+  expect(await run(`cd ${S2}/x && git init --separate-git-dir /repo/.git`)).toContain('may not')
+  expect(await run(`cd ${S2}/x && GIT_DIR=/repo/.git git apply p.diff`)).toContain('may not')
+  expect(await run('git stash list')).toBeUndefined()
+  expect(await run('git stash show -p')).toBeUndefined()
+  expect(await run('git stash')).toContain('git stash')
+  expect(await run('git stash pop')).toContain('git stash')
+  expect(await bash($, 'git stash list', b)).toBeUndefined()
+  expect(await bash($, 'git stash push', b)).toContain('git stash')
+})
+
+test('E3: a path built from a variable is checked as its value; ~ is never the scratchpad', async ($, on) => {
+  desk(on)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+  const ro = (command: string) => bash($, command, i)
+  const build = (command: string) => bash($, command, b)
+
+  expect(await build('S=/etc; touch $S/x')).toContain(OUTSIDE)
+  expect(await build('echo x > $HOME/.zshrc')).toContain(OUTSIDE)
+  expect(await ro('echo hi > $HOME/.zshrc')).toContain('outside the scratchpad')
+  expect(await ro('rm -rf $HOME/y')).toContain('outside the scratchpad')
+  expect(await ro(`cd ${S2}/x && rm -rf $HOME/y`)).toContain('outside the scratchpad')
+  expect(await ro(`cd ${S2}/x && echo hi > $HOME/.zshrc`)).toContain('outside the scratchpad')
+  expect(await ro(`cd ${S2}/x && rm -rf ~/y`)).toContain('outside the scratchpad')
+  expect(await ro(`cd ${S2}/x && echo hi > ~/.zshrc`)).toContain('outside the scratchpad')
+  expect(await ro('echo hi > ~/.zshrc')).toContain('outside the scratchpad')
+  expect(await ro('cd $HOME && rm -rf x')).toContain('outside the scratchpad')
+  expect(await ro('cd ${HOME} && rm -rf x')).toContain('outside the scratchpad')
+
+  expect(await ro(`S=${S2}/a; mkdir -p "$S"`)).toBeUndefined()
+  expect(await ro(`S=${S2}/a; cd "$S" && npm ci`)).toBeUndefined()
+  expect(await ro(`cd ${S2}/x && mkdir -p $PWD/out && echo x > "$(pwd)/out/a" && touch \${PWD}/b`)).toBeUndefined()
+  expect(await build('mkdir -p $PWD/out')).toBeUndefined()
+  expect(await build('out=dist/app.js; echo x > $out')).toBeUndefined()
+})
+
+test('E3: two different assignments to one name forget it, inside a loop or not', async ($, on) => {
+  desk(on)
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+  const build = (command: string) => bash($, command, b)
+
+  expect(await build('if true; then S=/etc; else S=/x/DC\\ Home/a; fi; touch $S/x')).toContain(LITERAL)
+  expect(await build('for f in a b; do if c; then S=/etc; else S=out; fi; touch $S/$f; done')).toContain(LITERAL)
+  expect(await build('for f in a.ts b.ts; do out="$UNKNOWN/$f"; echo x > "$out"; done')).toContain(LITERAL)
+  expect(await build('for f in a.ts b.ts; do out="dist/$f"; echo x > "$out"; done')).toBeUndefined()
+  expect(await build('for f in a.ts /etc/passwd; do out="$f"; echo x > "$out"; done')).toContain(OUTSIDE)
+})
+
+test('N5: a loop writes only to paths it can check, and the refusal says what to do instead', async ($, on) => {
+  desk(on)
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const build = (command: string) => bash($, command, b)
+
+  expect(await build("git ls-files | while read f; do sed -i '' 's/a/b/' \"$f\"; done")).toBe(loopDeny('f'))
+  expect(await build('ls | while read f; do rm "$f"; done')).toBe(loopDeny('f'))
+  expect(await build('for f in $(ls); do mv "$f" /etc/x; done')).toBe(loopDeny('f'))
+  expect(await build('for g in $X; do touch "$g"; done')).toBe(loopDeny('g'))
+  expect(await bash($, 'ls | while read f; do rm "$f"; done', i)).toBe(loopDeny('f'))
+  expect(await build('git ls-files | while read f; do grep x "$f"; done')).toBeUndefined()
+  expect(await build('while read -r l; do echo "$l"; done < file')).toBeUndefined()
+  expect(await build('for f in src/*.ts; do mv "$f" "$f.bak"; done')).toBeUndefined()
+  expect(await build('for f in src/a.ts src/b.ts; do sed -i \'\' \'s/a/b/\' "$f"; done')).toBeUndefined()
+  expect(await build('for f in ../*.ts; do mv "$f" "$f.bak"; done')).toBe(loopDeny('f'))
+})
+
+test('E3: an unknown variable in a write target or a cd asks for a literal path', async ($, on) => {
+  desk(on)
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+
+  for (const command of ['mkdir -p $UNKNOWN/x', 'cd $X && echo x > f', 'echo x > "$(mktemp -d)/f"', 'touch `pwd`/x']) {
+    expect(await bash($, command, b)).toContain(LITERAL)
+    expect(await bash($, command, i)).toContain(LITERAL)
+  }
+  expect(await bash($, 'echo $UNKNOWN > out.txt', b)).toBeUndefined()
+})
+
+// A disk with the given folders, each a git project.
+function projects(on: On, folders: string[]) {
+  engine(on)
+  mock.env(on, { HOME: '/home/me' })
+  on('session.cwd', () => ({ value: '/x/session' }))
+  on('session.info', () => ({ value: { transcriptPath: '', scratchpadDir: SCRATCH } }))
+  on('fs.list', (_, e) => (folders.includes(e.path) ? { value: [{ name: '.git', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }] } : { deny: `ENOENT: ${e.path}` }))
+  on('fs.exists', () => ({ value: false }))
+}
+
+test('E4: REPO lines in the shapes briefs use, and a second REPO line adds a root', async ($, on) => {
+  projects(on, ['/x/Acme - Web', '/x/App (v2)', '/x/api', '/a/b', '/x/web'])
+  const brief = async (repo: string, description: string) => {
+    const ran = (await $.agent.spawn({
+      tool_use_id: `t-${description}`, prompt: `GOAL: fix it\n${repo}\nFILES: a.ts`, description, subagentType: 'boss:builder',
+      provider: { plugin: 'boss', tier: 'user' }, parentModel: 'claude-opus', background: true, fork: false,
+    })) as { agentId?: string; deny?: string }
+    return ran
+  }
+  const writes = async (agentId: string | undefined, file_path: string) => (await $.tool.call({ tool: 'Write', file_path, content: 'x', agentId })).deny
+
+  const acme = await brief('REPO: /x/Acme - Web', 'acme')
+  expect(acme.deny).toBeUndefined()
+  expect(await writes(acme.agentId, '/x/Acme - Web/a.ts')).toBeUndefined()
+  const app = await brief('REPO: /x/App (v2)', 'app')
+  expect(await writes(app.agentId, '/x/App (v2)/a.ts')).toBeUndefined()
+  const api = await brief('REPO: /x/api (the API repo)', 'api')
+  expect(api.deny).toBeUndefined()
+  expect(await writes(api.agentId, '/x/api/a.ts')).toBeUndefined()
+  for (const [line, name] of [['REPO: /x/api — the API', 'dash'], ['REPO: /x/api - the API', 'hyphen'], ['REPO: /x/api # main', 'hash']] as const) {
+    expect(await writes((await brief(line, name)).agentId, '/x/api/a.ts')).toBeUndefined()
+  }
+  const bold = await brief('**REPO:** `/a/b`', 'bold')
+  expect(bold.deny).toBeUndefined()
+  expect(await writes(bold.agentId, '/a/b/a.ts')).toBeUndefined()
+  const two = await brief('REPO: /x/api\nREPO: /x/web', 'two')
+  expect(await writes(two.agentId, '/x/web/a.ts')).toBeUndefined()
+  expect(await writes(two.agentId, '/x/api/a.ts')).toBeUndefined()
+  expect(await writes(two.agentId, '/x/other/a.ts')).toContain(OUTSIDE)
+  expect((await brief('REPO: /x/api\nREPO: /home/me', 'home')).deny).toContain('REPO /home/me is your home folder')
+})
+
+test('C6: a model run is a job only when it runs; reading, testing or searching for one is not', () => {
+  for (const command of ['pytest test_ollama.py', 'cat ollama_client.ts', 'grep -E "foo|gemini bar" x', 'rg ":11434/api/generate" docs',
+    'git add scripts/ask_ollama.py', 'which gemini', 'sed -n 1,5p ask_ollama.py', 'head -5 run_ollama.sh'])
+    expect(outsideRun(command)).toBeNull()
+  expect(outsideRun('python3 ask_ollama.py')).toEqual({ lane: 'local', model: 'ollama', script: 'ask_ollama.py' })
+  expect(outsideRun('timeout 60 python3 ask_ollama.py brief.txt')).toEqual({ lane: 'local', model: 'ollama', script: 'ask_ollama.py' })
+  expect(outsideRun('nohup bash /s/run_ollama.sh &')).toEqual({ lane: 'local', model: 'ollama', script: '/s/run_ollama.sh' })
+  expect(outsideRun('cd /s && exec node ./ask-ollama.mjs b.md')).toEqual({ lane: 'local', model: 'ollama', script: './ask-ollama.mjs' })
+})

@@ -11,11 +11,12 @@ const SAVE = 'Write the lesson and read it back before saying it is saved.'
 const HOME = '/home/me'
 const REPO = '/work/my repo'
 const MEMORY = `${HOME}/.claude/projects/-work-my-repo/memory`
-function world(on: On, files: Record<string, { text: string; at?: number }> = {}) {
+function world(on: On, files: Record<string, { text: string; at?: number }> = {}, cwd = REPO) {
   const prompts: string[] = []
   mock.clock(on)
   mock.env(on, { HOME })
-  on('session.cwd', () => ({ value: REPO }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('session.root', () => ({ value: REPO }))
   on('session.info', () => ({ value: { transcriptPath: '', scratchpadDir: '/private/tmp/claude-501/p/s1/scratchpad' } }))
   on('fs.read', (_, e) => (files[e.path] === undefined ? { deny: `ENOENT: ${e.path}` } : { value: files[e.path]?.text ?? '' }))
   on('fs.exists', (_, e) => ({ value: files[e.path] !== undefined }))
@@ -30,6 +31,7 @@ function world(on: On, files: Record<string, { text: string; at?: number }> = {}
   })
   on('tool.call', () => ({ result: {} }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('classic.UserPromptSubmit', () => ({}))
   on('classic.Stop', () => ({}))
   on('ui.toast', () => ({ value: undefined }))
@@ -50,7 +52,14 @@ async function spawn($: Engine, subagentType: string, prompt: string, descriptio
   })
 }
 
-const say = ($: Engine, text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+// A typed prompt, and the main turn it starts: the reply checks start over there.
+let turns = 0
+async function say($: Engine, text: string) {
+  await $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
+  await $.turn.start({ text, turnId: `m${++turns}` })
+}
+// The reply checks and the memory budget apply in a boss session.
+const asBoss = ($: Engine) => $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
 const stop = async ($: Engine, answer: string) => (await $.classic.Stop({ stop_hook_active: false, last_assistant_message: answer })).block
 
 test('a boss session gets the learning nudge on each prompt; another session does not', async ($, on) => {
@@ -128,6 +137,7 @@ test('a builder or inspector brief without an absolute REPO path is refused', as
 
 test('a prose "Reply go" ask is stopped once; numbered questions or the picker pass', async ($, on) => {
   world(on)
+  await asBoss($)
   await say($, 'add a cache')
   expect(await stop($, 'I could use redis or memory. Reply "go" to take my picks.')).toBe(ASK)
   expect(await stop($, 'I could use redis or memory. Reply "go" to take my picks.')).toBeUndefined()
@@ -142,6 +152,7 @@ test('a prose "Reply go" ask is stopped once; numbered questions or the picker p
 
 test('saying learned with no memory write this turn is stopped; after a write it passes', async ($, on) => {
   world(on)
+  await asBoss($)
   await say($, 'keep reports short from now on')
   await $.tool.call({ tool: 'Write', file_path: `${REPO}/notes.md`, content: 'x' })
   expect(await stop($, 'Done. (learned: keep reports short)')).toBe(SAVE)
@@ -160,6 +171,7 @@ test('saying learned with no memory write this turn is stopped; after a write it
 test('a memory write over its budget is refused, naming the budget', async ($, on) => {
   const index = Array.from({ length: 50 }, (_, k) => `- [Lesson ${k}](l${k}.md) — when ${k}: do it`).join('\n')
   world(on, { [`${MEMORY}/MEMORY.md`]: { text: index } })
+  await asBoss($)
   const write = (file_path: string, content: string) => $.tool.call({ tool: 'Write', file_path, content })
 
   expect((await write(`${MEMORY}/long.md`, `---\nname: long\n---\n${'x'.repeat(1501)}`)).deny).toContain('1500 characters')
@@ -246,4 +258,76 @@ test('memory files that exist are changed with Edit only; a new topic file may b
   expect(await write(`${MEMORY}/new-lesson.md`)).toBeUndefined()
   const edit = await $.tool.call({ tool: 'Edit', file_path: `${MEMORY}/temp.md`, old_string: 'scratchpad only', new_string: 'scratchpad only, never /tmp' })
   expect(edit.deny).toBeUndefined()
+})
+
+test('C3: a word after learned or noted is not a claim; (learned: x) with no write still is', async ($, on) => {
+  world(on)
+  await asBoss($)
+  await say($, 'explain the retry logic')
+  expect(await stop($, 'The retry cap (noted above) is 3, so the loop ends.')).toBeUndefined()
+  await say($, 'ok')
+  expect(await stop($, 'Use a lock here (learned the hard way in the old queue).')).toBeUndefined()
+  await say($, 'keep it short')
+  expect(await stop($, 'Done. (learned: keep it short)')).toBe(SAVE)
+})
+
+test('C5: a memory file over budget may shrink but never grow', async ($, on) => {
+  const index = Array.from({ length: 55 }, (_, k) => `- [Lesson ${k}](l${k}.md) — when ${k}: do it`).join('\n')
+  world(on, {
+    [`${MEMORY}/MEMORY.md`]: { text: index },
+    [`${MEMORY}/big.md`]: { text: `---\nname: big\n---\n${'line\n'.repeat(30)}` },
+  })
+  await asBoss($)
+  const edit = async (file: string, old_string: string, new_string: string) =>
+    (await $.tool.call({ tool: 'Edit', file_path: `${MEMORY}/${file}`, old_string, new_string })).deny
+
+  expect(await edit('MEMORY.md', '\n- [Lesson 54](l54.md) — when 54: do it', '')).toBeUndefined()
+  expect(await edit('MEMORY.md', '— when 53: do it', '— when 53: do it\n- [New](new.md) — when new: do it')).toContain('50 lines')
+  expect(await edit('big.md', 'line\nline\n', '')).toBeUndefined()
+  expect(await edit('big.md', 'line\n', 'line\nline\n')).toContain('25 lines')
+  // A new file starts from nothing.
+  expect((await $.tool.call({ tool: 'Write', file_path: `${MEMORY}/new.md`, content: 'x'.repeat(1501) })).deny).toContain('1500 characters')
+})
+
+test('C5: a long MEMORY.md line already there blocks no edit; a new long line is refused', async ($, on) => {
+  const long = `- [Old](old.md) — ${'a stock auto-memory line that runs well past the eighty characters the boss budget allows'}`
+  world(on, { [`${MEMORY}/MEMORY.md`]: { text: `${long}\n- [B](b.md) — short` } })
+  await asBoss($)
+  const edit = async (old_string: string, new_string: string) =>
+    (await $.tool.call({ tool: 'Edit', file_path: `${MEMORY}/MEMORY.md`, old_string, new_string })).deny
+
+  expect(await edit('- [B](b.md) — short', '- [B](b.md) — short\n- [C](c.md) — when c: d')).toBeUndefined()
+  expect(await edit('- [B](b.md) — short', `- [B](b.md) — ${'x'.repeat(81)}`)).toContain('80 characters')
+})
+
+test('F2: lessons live under the session root, even after a shell cd moved the folder', async ($, on) => {
+  world(on, {}, `${REPO}/hooks`)
+  await asBoss($)
+  await say($, 'keep reports short')
+  expect((await $.tool.call({ tool: 'Write', file_path: `${MEMORY}/long.md`, content: 'x'.repeat(5000) })).deny).toContain('1500 characters')
+  await $.tool.call({ tool: 'Write', file_path: `${MEMORY}/short.md`, content: 'when reporting: keep it short' })
+  expect(await stop($, 'Done. (learned: keep reports short)')).toBeUndefined()
+})
+
+test('flow 7: a boss run under the guard: a builder loops over its files, an inspector works in its scratchpad, boss trims memory and says learned', async ($, on) => {
+  const SCRATCH = '/private/tmp/claude-501/p/s1/scratchpad'
+  const index = Array.from({ length: 52 }, (_, k) => `- [Lesson ${k}](l${k}.md) — when ${k}: do it`).join('\n')
+  world(on, { [`${MEMORY}/MEMORY.md`]: { text: index } })
+  await asBoss($)
+  await say($, '/boss rename the flag, and from now on keep reports short')
+  const built = await spawn($, 'boss:builder', `GOAL: rename the flag\n**REPO:** \`${REPO}\`\nFILES: src/*.ts`, 'build')
+  const inspected = await spawn($, 'boss:inspector', `REPO: ${REPO} (the app)\nCONTRACT: flag renamed`, 'inspect')
+  expect([(built as { deny?: string }).deny, (inspected as { deny?: string }).deny]).toEqual([undefined, undefined])
+  const b = `${built.agentId}`
+  const i = `${inspected.agentId}`
+  const bash = async (command: string, agentId: string) => (await $.tool.call({ tool: 'Bash', command, agentId })).deny
+
+  expect(await bash(`cd "${REPO}" && for f in src/*.ts; do sed -i '' 's/old/new/' "$f"; done`, b)).toBeUndefined()
+  expect(await bash('git ls-files | while read f; do sed -i \'\' \'s/old/new/\' "$f"; done', b)).toContain('use a `for f in <files>` loop')
+  expect(await bash(`S=${SCRATCH}/t; cd "$S" && npm ci && sed -i '' s/a/b/ $PWD/x.ts && echo ok > "$S/report.txt"`, i)).toBeUndefined()
+  expect(await bash(`S=${SCRATCH}/t; cd "$S" && echo x > "${REPO}/src/a.ts"`, i)).toContain('inspectors may not write files outside the scratchpad')
+
+  const trim = await $.tool.call({ tool: 'Edit', file_path: `${MEMORY}/MEMORY.md`, old_string: '- [Lesson 51](l51.md) — when 51: do it', new_string: '- [Short](short.md) — when reporting: keep it short' })
+  expect(trim.deny).toBeUndefined()
+  expect(await stop($, 'Renamed and proven. (learned: keep reports short)')).toBeUndefined()
 })
