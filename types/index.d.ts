@@ -18,6 +18,8 @@ export type BossLiveJob = {
   startedAt: number
   // When this agent last finished; absent while it runs.
   endedAt?: number
+  // A builder's brief REPO, a write root beside the session folder.
+  repo?: string
 }
 
 export type BossLiveResult = 'PASS' | 'FAIL' | 'NOT CHECKED'

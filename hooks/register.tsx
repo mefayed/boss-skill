@@ -4,7 +4,7 @@ import type { EngineInterface, Hook, Register } from 'claude-code'
 import type { BossLiveJob, BossLiveLane, BossLiveProof, BossLiveResult, BossLiveState } from '../types'
 import { outsideRun, readContract, readInspection, readQuestions, readStatus, short } from './boss-text'
 import { CARD_HEIGHT, cardSvg, type CardKind, type CardModel } from './card'
-import { bashRule, clean, inRoots, inScratch, type Roots } from './guard'
+import { bashRule, clean, inRoots, inScratch, within, type Roots } from './guard'
 import { hasRepo, isLessonFile, NEED_REPO, NUDGE, REWRITE, overBudget, places, recall, replyProblem, resultText, withLessons } from './learn'
 
 // Change the tag when the state's fields change: it declines what an earlier
@@ -144,6 +144,12 @@ function readGoal(brief: string): string | null {
   return goal === undefined ? null : short(goal, 200)
 }
 
+// The brief's REPO path: the whole line, since paths hold spaces.
+function readRepo(brief: string): string | null {
+  const repo = /^\s*REPO\s*:\s*(\/.*)$/m.exec(brief)?.[1]
+  return repo === undefined ? null : clean(repo.trim())
+}
+
 const STEPS = ['Plan', 'Build', 'Check', 'Done']
 const STEP_OF: Record<BossLiveLane, number> = {
   'fable-advisor': 0,
@@ -215,14 +221,30 @@ function shortModel(model: string | undefined): string {
 const isBuilder = (lane: BossLiveLane) => lane === 'builder' || lane === 'builder-deep'
 
 // Where a builder may write. shortcut: no session folder (tests, odd hosts) leaves writes unchecked.
-async function writeRoots($: $): Promise<Roots | null> {
+async function writeRoots($: $, agentId?: string): Promise<Roots | null> {
   try {
     const cwd = await $.session.cwd()
     const scratch = (await $.session.info().catch(() => null))?.scratchpadDir ?? null
-    return { cwd, scratch }
+    const repo = agentId === undefined ? null : ((await read($, live)).agents[agentId]?.repo ?? null)
+    return { cwd, repo, scratch }
   } catch {
     return null
   }
+}
+
+// Why a REPO outside the session folder may not become a write root; null when it may.
+async function repoProblem($: $, repo: string): Promise<string | null> {
+  const home = clean((await $.env.get('HOME').catch(() => undefined)) ?? '')
+  const config = clean((await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined)) ?? (home === null ? '' : `${home}/.claude`))
+  if (repo === '/') return 'the filesystem root'
+  if (home !== null && within(home, repo)) return 'your home folder or above it'
+  if (config !== null && within(repo, config)) return 'inside the Claude config folder'
+  if (home !== null && within(repo, home) && repo.slice(home.length + 1).startsWith('.')) return 'inside a hidden folder of your home'
+  const entries = await $.fs.list(repo).catch(() => null)
+  if (entries === null) return 'not a folder'
+  if (entries.some(f => f.name === '.git')) return null
+  const dirs = entries.filter(f => f.kind === 'dir').map(f => $.fs.exists(`${repo}/${f.name}/.git`).catch(() => false))
+  return (await Promise.all(dirs)).some(Boolean) ? null : 'a folder that has no .git in it or a folder just inside it'
 }
 
 async function agentLane($: $, agentId: string): Promise<BossLiveLane | undefined> {
@@ -401,7 +423,7 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
   }
   const rules = lane === undefined ? undefined : LANES[lane]
   if (rules !== undefined) {
-    const roots = lane !== undefined && isBuilder(lane) ? await writeRoots($) : null
+    const roots = lane !== undefined && isBuilder(lane) ? await writeRoots($, e.agentId) : null
     const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
     let what: string | null = null
     if (e.tool === 'Bash') what = bashRule(e.command, rules.isReadOnly, roots)
@@ -558,6 +580,13 @@ export const register: Register = on => {
       if (ran.agentId !== undefined) await wake($, e.resume.agentId)
       return ran
     }
+    // A builder may write in its REPO too, so one outside the session folder must be a project's own.
+    const roots = lane !== undefined && isBuilder(lane) ? await writeRoots($) : null
+    const repo = roots === null ? null : readRepo(e.prompt)
+    if (roots !== null && repo !== null && !within(repo, roots.cwd)) {
+      const why = await repoProblem($, repo)
+      if (why !== null) return { deny: `boss-live: REPO ${repo} is ${why} — brief the project's own folder` }
+    }
     // An agent that writes or tests must know which repo: one once inspected the wrong one.
     if (lane !== undefined && (isBuilder(lane) || lane === 'inspector') && !hasRepo(e.prompt)) return { deny: NEED_REPO }
     // The owner's lessons, read from disk at each dispatch, so one learned mid-run reaches the next agent.
@@ -575,6 +604,7 @@ export const register: Register = on => {
         model: shortModel(e.model ?? ran.model),
         description: e.description,
         startedAt: await $.clock.now(),
+        ...(repo === null ? {} : { repo }),
       }, isBuilder(lane) ? readGoal(e.prompt) : null)
     }
 

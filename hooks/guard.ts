@@ -11,8 +11,8 @@ const INSTALLERS = ['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'brew', 'apt', 
 const INSTALLS = ['install', 'i', 'add', 'ci', 'uninstall', 'remove', 'update', 'upgrade', 'get']
 
 type Segment = { words: string[]; outs: string[] }
-// Where a builder may write: the repo it runs in and the session's scratchpad (null: unknown).
-export type Roots = { cwd: string; scratch: string | null }
+// Where a builder may write: the folder it runs in, its brief's REPO, and the session's scratchpad (null: unknown).
+export type Roots = { cwd: string; repo: string | null; scratch: string | null }
 
 // The absolute path with `.` and `..` resolved; null when relative with no cwd known.
 export function clean(path: string, cwd: string | null = null): string | null {
@@ -31,16 +31,19 @@ export function inScratch(path: string, cwd: string | null = null): boolean {
   return full !== null && SCRATCH.some(root => full.startsWith(root) && full.length > root.length)
 }
 
-// Inside the repo or the scratchpad itself; /tmp and /private/tmp are one folder on macOS.
+// `path` (clean) is `root` or inside it; /tmp and /private/tmp are one folder on macOS.
+export function within(path: string, root: string): boolean {
+  const tmp = (p: string) => p.replace(/^\/private\/tmp\//, '/tmp/')
+  const r = tmp(root.replace(/\/+$/, ''))
+  return tmp(path) === r || tmp(path).startsWith(`${r}/`)
+}
+
+// Inside the folder, the REPO or the scratchpad itself.
 export function inRoots(path: string, roots: Roots, cwd: string | null = roots.cwd): boolean {
   const full = path.startsWith('~') ? null : clean(path, cwd)
   if (full === null) return false
-  const tmp = (p: string) => p.replace(/^\/private\/tmp\//, '/tmp/')
-  const under = (root: string) => {
-    const r = tmp(root.replace(/\/+$/, ''))
-    return tmp(full) === r || tmp(full).startsWith(`${r}/`)
-  }
-  return under(roots.cwd) || (roots.scratch === null ? inScratch(full) : under(roots.scratch))
+  const under = (root: string) => within(full, root)
+  return under(roots.cwd) || (roots.repo !== null && under(roots.repo)) || (roots.scratch === null ? inScratch(full) : under(roots.scratch))
 }
 
 // Splits on ; && || | & and newlines outside quotes, and pulls out `>` targets.
@@ -259,7 +262,7 @@ function commandRule(words: string[], outs: string[], isReadOnly: boolean, cwd: 
 
   if (['sh', 'bash', 'zsh'].includes(cmd)) {
     const at = args.findIndex(a => /^-[a-z]*c$/.test(a))
-    return at >= 0 ? bashRule(args[at + 1] ?? '', isReadOnly, roots === null ? null : { ...roots, cwd: cwd ?? roots.cwd }) : null
+    return at >= 0 ? bashRule(args[at + 1] ?? '', isReadOnly, roots, cwd) : null
   }
   if (cmd === 'find') {
     const at = args.findIndex(a => ['-exec', '-execdir', '-ok'].includes(a))
@@ -272,6 +275,7 @@ function commandRule(words: string[], outs: string[], isReadOnly: boolean, cwd: 
   if (cmd === 'rm') {
     const isRecursive = flagged(args, a => a === '--recursive' || /^-[a-zA-Z]*[rR]/.test(a))
     if (isRecursive && outside(files)) return 'run rm -r outside the scratchpad'
+    if (roots !== null && files.some(p => !inRoots(p, roots, cwd))) return 'delete files outside REPO and the scratchpad'
     if (isReadOnly && outside(files)) return 'delete files outside the scratchpad'
     return null
   }
@@ -292,14 +296,19 @@ function commandRule(words: string[], outs: string[], isReadOnly: boolean, cwd: 
 }
 
 // What the command may not do, as "run git push", or null when it may run.
-// `roots`, for a builder: `>`, `>>` and `tee` must land inside them.
-export function bashRule(command: string, isReadOnly: boolean, roots: Roots | null = null): string | null {
-  let cwd: string | null = roots?.cwd ?? null
+// `roots`, for a builder: `>`, `>>` and `tee` must land inside them. `cwd`: where the shell
+// starts, apart from the roots, so a `cd` never widens them.
+export function bashRule(command: string, isReadOnly: boolean, roots: Roots | null = null, cwd: string | null = roots?.cwd ?? null): string | null {
   for (const { words, outs } of parse(command)) {
-    if (words[0] === 'cd') {
+    if (words[0] === 'cd' || words[0] === 'pushd') {
       const to = words[1] ?? ''
-      // A builder's `cd ~` or `cd $X` leaves the folder unknown, so relative writes after it are outside.
-      cwd = to.startsWith('/') ? to : cwd === null || (roots !== null && /^[~$]/.test(to)) ? null : `${cwd}/${to}`
+      // A bare `cd`, `cd -`, `cd ~` or `cd $X` leaves the folder unknown, so relative writes after it are outside.
+      cwd = to.startsWith('/') ? to : cwd === null || to === '' || to === '-' || /^[~$]/.test(to) ? null : `${cwd}/${to}`
+      continue
+    }
+    // popd goes back to a folder the stack holds, not one followed here.
+    if (words[0] === 'popd') {
+      cwd = null
       continue
     }
     const rule = commandRule(words, outs, isReadOnly, cwd, roots)

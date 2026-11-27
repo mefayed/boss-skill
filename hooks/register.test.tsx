@@ -320,6 +320,121 @@ test('a bounce to one parallel builder does not hide another one stuck', async (
   expect(lines).not.toContain('builder stuck')
 })
 
+// A session in /x/DC Supervisor, a home folder, and a disk the REPO checks read (folders end in '/').
+const SCRATCH = '/private/tmp/claude-501/p/s1/scratchpad'
+function desk(on: On, env: Record<string, string> = { HOME: '/home/me' }) {
+  engine(on)
+  mock.env(on, env)
+  on('session.cwd', () => ({ value: '/x/DC Supervisor' }))
+  on('session.info', () => ({ value: { transcriptPath: '', scratchpadDir: SCRATCH } }))
+  const kinds = new Map<string, 'file' | 'dir'>([['/', 'dir']])
+  for (const path of ['/x/DC Home/backend/.git/', '/x/DC Home/README.md', '/x/Flat/src/a.ts', '/x/notes.txt', '/x/cfg/p/.git/',
+    '/home/me/.git/', '/home/me/.ssh/.git/', '/home/me/.nvm/v1/.git/', '/home/me/.claude/x/.git/', '/home/.git/', '/.git/']) {
+    const parts = path.split('/').filter(Boolean)
+    parts.forEach((_, k) => kinds.set(`/${parts.slice(0, k + 1).join('/')}`, k < parts.length - 1 || path.endsWith('/') ? 'dir' : 'file'))
+  }
+  on('fs.exists', (_, e) => ({ value: kinds.has(e.path) }))
+  on('fs.list', (_, e) => {
+    if (kinds.get(e.path) !== 'dir') return { deny: `ENOTDIR: ${e.path}` }
+    const base = e.path === '/' ? '' : e.path
+    const inside = [...kinds].filter(([p]) => p !== '/' && p.slice(0, p.lastIndexOf('/')) === base)
+    return { value: inside.map(([p, kind]) => ({ name: p.slice(base.length + 1), kind, size: 0, mtimeMs: 0, isLink: false })) }
+  })
+}
+
+async function briefed($: Engine, repo: string, description = 'Fix home') {
+  const ran = await $.agent.spawn({
+    tool_use_id: `t-${description}`,
+    prompt: `GOAL: fix it\nREPO: ${repo}  \nFILES: a.ts`,
+    description,
+    subagentType: 'boss:builder',
+    provider: { plugin: 'boss', tier: 'user' },
+    parentModel: 'claude-opus',
+    background: true,
+    fork: false,
+  })
+  return ran as { agentId?: string; deny?: string }
+}
+
+const OUTSIDE = 'outside REPO and the scratchpad'
+
+test('a builder writes in the REPO its brief names, even outside the session folder; elsewhere stays refused', async ($, on) => {
+  desk(on)
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+  const edit = async (file_path: string) => (await $.tool.call({ tool: 'Edit', file_path, old_string: 'a', new_string: 'b', agentId: b })).deny
+  const write = async (file_path: string) => (await $.tool.call({ tool: 'Write', file_path, content: 'x', agentId: b })).deny
+
+  expect(await edit('/x/DC Home/backend/a.ts')).toBeUndefined()
+  expect(await write('/x/DC Home/backend/a.ts')).toBeUndefined()
+  expect(await write('/x/DC Supervisor/src/a.ts')).toBeUndefined()
+  expect(await bash($, 'echo x > "/x/DC Home/a.txt"', b)).toBeUndefined()
+  expect(await bash($, 'cd "../DC Home" && cp a b', b)).toBeUndefined()
+  expect(await bash($, 'rm a.txt "/x/DC Home/a.txt" /private/tmp/claude-501/p/s1/scratchpad/x', b)).toBeUndefined()
+
+  expect(await edit('/x/Other/a.ts')).toContain(OUTSIDE)
+  expect(await write('/x/DC Homework/a.ts')).toContain(OUTSIDE)
+  expect(await bash($, 'echo x > /x/Other/a.ts', b)).toContain(OUTSIDE)
+  expect(await bash($, 'rm /x/Other/f', b)).toContain('delete files outside REPO and the scratchpad')
+})
+
+test('a REPO outside the session folder must be a project folder, never home, config or hidden', async ($, on) => {
+  desk(on)
+  const why = async (repo: string) => (await briefed($, repo, repo)).deny
+
+  expect(await why('/')).toContain('is the filesystem root')
+  expect(await why('/x/..')).toContain('is the filesystem root')
+  expect(await why('/home/me')).toContain('is your home folder or above it')
+  expect(await why('/home/me/')).toContain('is your home folder or above it')
+  expect(await why('/home')).toContain('is your home folder or above it')
+  expect(await why('/home/me/.claude/x')).toContain('is inside the Claude config folder')
+  expect(await why('/home/me/.ssh')).toContain('is inside a hidden folder of your home')
+  expect(await why('/home/me/.nvm/v1')).toContain('is inside a hidden folder of your home')
+  expect(await why('/x/notes.txt')).toContain('is not a folder')
+  expect(await why('/x/missing')).toContain('is not a folder')
+  expect(await why('/x/Flat')).toContain('has no .git in it or a folder just inside it')
+  expect(await why('/x/DC Home')).toBeUndefined()
+  // Inside the session folder needs no check.
+  expect(await why('/x/DC Supervisor/sub')).toBeUndefined()
+})
+
+test('a set Claude config folder is refused as a REPO', async ($, on) => {
+  desk(on, { HOME: '/home/me', CLAUDE_CONFIG_DIR: '/x/cfg' })
+  expect((await briefed($, '/x/cfg/p')).deny).toContain('is inside the Claude config folder')
+})
+
+test('without a session folder the REPO is not checked', async ($, on) => {
+  engine(on)
+  expect((await briefed($, '/home')).deny).toBeUndefined()
+})
+
+test('cd, pushd and popd never leave a builder writing where the guard thinks it is not', async ($, on) => {
+  desk(on)
+  const b = `${(await briefed($, '/x/DC Home')).agentId}`
+
+  for (const command of [
+    'cd /etc && bash -c "echo x > passwd"',
+    'cd && echo x > .zshrc',
+    'cd - && echo x > f',
+    'pushd /etc && echo x > passwd',
+    'cd /etc && pushd "/x/DC Home" && popd && echo x > passwd',
+  ]) expect(await bash($, command, b)).toContain(OUTSIDE)
+
+  expect(await bash($, 'cd "/x/DC Home/backend" && bash -c "echo x > a.ts"', b)).toBeUndefined()
+  expect(await bash($, 'pushd "../DC Home" && echo x > a.txt', b)).toBeUndefined()
+})
+
+test('a resumed builder keeps the REPO it was briefed with', async ($, on) => {
+  desk(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const b = `${(await briefed($, '/x/DC Home', 'Add login')).agentId}`
+  await $.turn.complete(done('STATUS: NEEDS_CONTEXT\nOPEN: which db', b))
+  await resume($, 'boss:builder', 'Add login', 'The db is postgres.')
+  await $.turn.start({ text: 'The db is postgres.', turnId: 'r1', agentId: b })
+  expect(await bash($, 'echo x > "/x/DC Home/backend/db.ts"', b)).toBeUndefined()
+  expect(await bash($, 'echo x > /x/Other/db.ts', b)).toContain(OUTSIDE)
+})
+
 test('a text ask shows its count, not its questions, and one press takes the picks', async ($, on) => {
   const toasts = engine(on)
   const filled: string[] = []
