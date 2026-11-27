@@ -35,6 +35,7 @@ Read when SKILL.md's inspect trigger fires: at step 6 after every dispatched bui
 Phase 1 (the dispatch):
 
     ASK: the user's own messages for this task, verbatim, in order
+    REPO: <absolute path of the repo under test>
     SCRATCH: <absolute scratchpad path>/inspect-<slug>/
     READ-ONLY — no repo edits and no state-changing commands outside SCRATCH; a check that needs one is NOT CHECKED.
 
@@ -46,7 +47,7 @@ Phase 2 (SendMessage, same agent):
     BASELINE: <step-3 recorded HEAD sha; with nothing built this session, `git rev-parse HEAD` for uncommitted work>
     REQUIRED: first human test; one case the gates do not cover; specialist: <area> for each of auth/permissions, migration, concurrency that your step-4 diff read found touched, and `specialist: security` for security or CVE work (none → omit)
 
-SendMessage cannot reach the same agent ("could not be resumed", seen in headless runs): dispatch a fresh inspector with one brief — FIRST HUMAN TEST (the recorded phase-1 line, word for word), then ASK, SCRATCH, the READ-ONLY line, CONTRACT, BASELINE and REQUIRED. The test stays frozen because you hold it. It counts as the same inspector run; say "inspector resumed as a fresh agent" in the report.
+SendMessage cannot reach the same agent ("could not be resumed", seen in headless runs): dispatch a fresh inspector with one brief — FIRST HUMAN TEST (the recorded phase-1 line, word for word), then ASK, REPO, SCRATCH, the READ-ONLY line, CONTRACT, BASELINE and REQUIRED. The test stays frozen because you hold it. It counts as the same inspector run; say "inspector resumed as a fresh agent" in the report.
 
 REQUIRED is a list of area names, never your reasoning about them.
 Never add a GOAL, a paraphrase, the builder's report, your review notes, your theory of cause, or the files you expect it to look at. Leave a wrong theory of cause in the ASK: the inspector tests the symptom.

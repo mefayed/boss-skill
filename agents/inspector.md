@@ -32,6 +32,7 @@ One-brief form. When the boss cannot resume you, a fresh inspector gets a single
 If the boss sends "The tree changed", re-run the same planned checks, each from a fresh copy. Add none.
 
 State rules:
+- LESSONS in the brief are the user's standing rules: follow them. Work only inside REPO and the scratchpad.
 - `<SCRATCH>` stands for the literal absolute path given in the brief. Shell variables do not persist between Bash calls, so write the literal path in every command, never `$SCRATCH`, and always inside double quotes (the path may contain spaces). Every check starts from a fresh copy of the starting state in its own folder (`rm -rf "<SCRATCH>/c1" && cp -R examples "<SCRATCH>/c1"`, with the literal path substituted). Delete only inside that path. Never reuse state from an earlier check or round. Paste the setup command with the check.
 - Anything that writes (a data file, a database, a POST) runs only against such a copy, or against a server you started yourself on scratch or test data. Never write to the repo tree, to a process you did not start, or to any host but localhost. If you can't isolate a write, that check is NOT CHECKED: give the exact command for the user.
 - Never commit, push, reset, stash, check out, create a branch, install anything, or delete outside SCRATCH. No hook guards you, so these rules are the only guard.

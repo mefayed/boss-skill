@@ -119,7 +119,13 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 
 </details>
 
-Directives last for the session until you countermand them. Boss also remembers standing preferences through Claude Code's own memory: say a preference once, or correct it twice, and it applies in future sessions too. Traits about you (not repo facts) are also offered as a line for your global CLAUDE.md, so they travel across projects. Secrets are never stored. Nothing extra to install.
+Directives last for the session until you countermand them. Boss learns from the chat through Claude Code's own memory: correct it or say what you like once, and it applies in future sessions too. Lessons about you go to your global CLAUDE.md (after your one-time yes), so they travel across projects; facts about one repo stay in that project's memory. Secrets are never stored. Nothing extra to install.
+
+**Learning.** Boss learns from what you say in chat: a correction, a complaint, something you like or dislike. A lesson about you goes in a `## Boss lessons` section of `~/.claude/CLAUDE.md`, which boss creates only after you say yes once. A lesson true only in one repo goes in that project's Claude Code memory. Boss writes the lesson, reads it back, and only then says `(learned: …)`; "forget that" removes it. The hooks only read: when an agent starts, they copy up to five matching lessons into its brief. They also keep the lesson files small, and send a reply back once if it asks in prose or says it learned with nothing written. Lessons stay on your machine; a lesson in a brief reaches the agent like the rest of the brief.
+
+## Live card
+
+While boss works, a card shows what each agent is doing, its progress, the context and plan-limit usage, and when boss needs your answer. It appears only while boss works. "Show less" shrinks it, "Hide" hides it, and `/boss-live` toggles it back.
 
 ## Why
 
@@ -298,9 +304,9 @@ agents/inspector.md       tries a finished change like the user would, on scratc
 ```
 
 <details>
-<summary>No hook: what guards a builder</summary>
+<summary>What guards a builder</summary>
 
-Boss ships no hook and no script. Anthropic's plugin directory accepts neither from organizations that are not Verified, so the tripwire that used to block push, commit and other destructive Bash from builder agents is gone (it stays in the git history at commit `1913e26`, with the benchmark and the tests). What remains: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD, refs and the content baseline and reads the full diff. A commit, or a push that moves a tracking ref, is caught after the fact, not prevented. A `gh` or `curl` write is not caught.
+Boss ships a hooks module (the live card, below). Anthropic's plugin directory accepts hooks and scripts only from Verified organizations, so the shell tripwire that used to block push, commit and other destructive Bash from builder agents was removed (it stays in the git history at commit `1913e26`, with the benchmark and the tests). The module adds a best-effort guard that denies such Bash from boss's builder agents. Beyond that: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD, refs and the content baseline and reads the full diff. A commit, or a push that moves a tracking ref, is caught after the fact, not prevented. A `gh` or `curl` write is not caught.
 
 </details>
 
@@ -329,9 +335,9 @@ Omitting `tools:` inherits everything, but MCP schemas are **deferred**: names o
 
 ## What it runs and sends
 
-Boss is markdown only. It has no server, makes no network calls of its own and collects nothing.
+Boss is markdown plus a hooks module for the live card. It has no server, makes no network calls of its own and collects nothing.
 
-- **No hooks, no scripts.** Boss sends nothing to its author. What it saves on your machine is listed under Memory below.
+- **The live card** reads boss's own agent events in your session and Claude Code's usage numbers, and keeps small settings on your machine. It sends nothing. Details are in PRIVACY.md.
 - **Subagents** run inside your Claude Code session, on your own Anthropic account, like any other subagent. They run the commands a task needs (tests, builds, searches) in your repo.
 - **The inspector** runs your app's real entry point (the CLI, localhost requests, playwright-cli if installed) against scratch copies of your repo. It runs on your own account like any other subagent.
 - **Codex and other model CLIs** run only when you name them. Boss then calls that vendor's CLI on your machine, which sends the prompt and the code it reads to that vendor, under your account and their terms. Without that ask, nothing goes to them.
