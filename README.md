@@ -20,7 +20,7 @@
 <p align="center">
   boss turns your main Claude Code session into a supervisor.<br>
   Each task goes to the cheapest model that can do it right, the supervisor reads every diff itself,<br>
-  and you get the result back in a few plain lines. It's markdown, nothing else.
+  and you get the result back in a few plain lines, with a live card that shows the team at work.
 </p>
 
 <p align="center">
@@ -349,7 +349,7 @@ Boss is markdown plus a hooks module for the live card. It has no server, makes 
 - Access to the models you want in the lanes; edit the `model:` frontmatter in `agents/*.md` to match your plan.
 - A Sonnet or Opus main session. Boss's supervisor is your main model; in our tests Haiku as supervisor skipped boss's own rules (it accepted a user's wrong guess about a bug and committed unasked).
 
-The plugin itself has **zero dependencies**: markdown only. Everything else is optional. When a tool is missing, boss degrades to the nearest available check, says so in its report, and suggests the install line.
+The plugin itself has **zero dependencies**: markdown plus one hooks module that Claude Code runs itself. Everything else is optional. When a tool is missing, boss degrades to the nearest available check, says so in its report, and suggests the install line.
 
 <details>
 <summary>Optional tools</summary>

@@ -202,6 +202,124 @@ test('a builder that says done is not a pass', async ($, on) => {
   expect(lines).not.toContain('passed')
 })
 
+test('a builder bounced back that then finishes, and an unchecked verdict, end grey, not red', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  await $.turn.complete(done('STATUS: NEEDS_CONTEXT\nOPEN: which db', b))
+  expect(await band($, 'terminal')).toContain('builder stuck')
+  expect(tone((await card($))?.source)).toBe('failed')
+  // Boss answers it, and the same builder finishes.
+  await $.turn.start({ text: 'the db is postgres', turnId: 'w1', agentId: b })
+  await $.turn.complete(done('STATUS: DONE', b))
+  let lines = await band($, 'terminal')
+  expect(lines).toContain('built, being proven')
+  expect(lines).not.toContain('builder stuck')
+  const i = await spawn($, 'boss:inspector', 'Check login', 'sonnet', 'ASK: x')
+  await $.turn.complete(done('VERDICT: NOT CHECKED\nCHECKS:\n- login route: NOT CHECKED — no logs', i))
+  const svg = (await card($))?.source ?? ''
+  expect(svg).toContain('>Finished, not checked<')
+  expect(tone(svg)).toBe('still')
+})
+
+test('a stuck builder is red until a verdict; an unchecked verdict is grey', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  await $.turn.complete(done('STATUS: BLOCKED\nOPEN: no db', b))
+  expect(tone((await card($))?.source)).toBe('failed')
+  const i = await spawn($, 'boss:inspector', 'Check login', 'sonnet', 'ASK: x')
+  await $.turn.complete(done('VERDICT: NOT CHECKED\nCHECKS:\n- login route: NOT CHECKED — no logs', i))
+  expect(tone((await card($))?.source)).toBe('still')
+})
+
+test('a parallel builder finishing does not hide another one stuck', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const x = await spawn($, 'boss:builder', 'Task X', 'sonnet', BRIEF)
+  const y = await spawn($, 'boss:builder', 'Task Y', 'sonnet', BRIEF)
+  await $.turn.complete(done('STATUS: BLOCKED\nOPEN: no db', x))
+  await $.turn.complete(done('STATUS: DONE', y))
+  expect(await band($, 'terminal')).toContain('builder stuck')
+  expect(tone((await card($))?.source)).toBe('failed')
+  // Waking the other builder does not clear X's block; X finishing does.
+  await $.turn.start({ text: 'one more thing', turnId: 'wy', agentId: y })
+  await $.turn.complete(done('STATUS: DONE', y))
+  expect(await band($, 'terminal')).toContain('builder stuck')
+  await $.turn.start({ text: 'the db is postgres', turnId: 'wx', agentId: x })
+  await $.turn.complete(done('STATUS: DONE', x))
+  const lines = await band($, 'terminal')
+  expect(lines).toContain('built, being proven')
+  expect(lines).not.toContain('builder stuck')
+})
+
+test('a replacement builder bounced back that then finishes is not stuck', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const x = await spawn($, 'boss:builder', 'Task X', 'sonnet', BRIEF)
+  await $.turn.complete(done('STATUS: BLOCKED\nOPEN: no db', x))
+  const z = await spawn($, 'boss:builder', 'Task Z', 'opus', BRIEF)
+  await $.turn.complete(done('STATUS: NEEDS_CONTEXT\nOPEN: which db', z))
+  await $.turn.start({ text: 'the db is postgres', turnId: 'wz', agentId: z })
+  await $.turn.complete(done('STATUS: DONE', z))
+  const lines = await band($, 'terminal')
+  expect(lines).toContain('built, being proven')
+  expect(lines).not.toContain('builder stuck')
+})
+
+// Boss's bounce: SendMessage to a finished agent resumes it under the same id, with no brief.
+async function resume($: Engine, subagentType: string, description: string, message: string) {
+  return $.agent.spawn({
+    tool_use_id: `r-${description}`,
+    prompt: message,
+    description,
+    subagentType,
+    provider: { plugin: 'boss', tier: 'user' },
+    parentModel: 'claude-opus',
+    background: true,
+    fork: false,
+    resume: { agentId: `${description}-id` },
+  } as never)
+}
+
+test('a bounce resumes a stuck builder with no REPO line, and it is working again', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  await $.turn.complete(done('STATUS: NEEDS_CONTEXT\nOPEN: which db', b))
+  expect(await band($, 'terminal')).toContain('builder stuck')
+  const ran = await resume($, 'boss:builder', 'Add login', 'The db is postgres.')
+  expect((ran as { deny?: string }).deny).toBeUndefined()
+  await $.turn.start({ text: 'The db is postgres.', turnId: 'r1', agentId: b })
+  await $.turn.complete(done('STATUS: DONE', b))
+  const lines = await band($, 'terminal')
+  expect(lines).toContain('built, being proven')
+  expect(lines).not.toContain('builder stuck')
+})
+
+test('a bounce to one parallel builder does not hide another one stuck', async ($, on) => {
+  engine(on)
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const x = await spawn($, 'boss:builder', 'Task X', 'sonnet', BRIEF)
+  const y = await spawn($, 'boss:builder', 'Task Y', 'sonnet', BRIEF)
+  await $.turn.complete(done('STATUS: BLOCKED\nOPEN: no db', x))
+  await $.turn.complete(done('STATUS: DONE', y))
+  await resume($, 'boss:builder', 'Task Y', 'Also rename the helper.')
+  await $.turn.complete(done('STATUS: DONE', y))
+  expect(await band($, 'terminal')).toContain('builder stuck')
+  await resume($, 'boss:builder', 'Task X', 'The db is postgres.')
+  await $.turn.complete(done('STATUS: DONE', x))
+  const lines = await band($, 'terminal')
+  expect(lines).toContain('built, being proven')
+  expect(lines).not.toContain('builder stuck')
+})
+
 test('a text ask shows its count, not its questions, and one press takes the picks', async ($, on) => {
   const toasts = engine(on)
   const filled: string[] = []
@@ -1453,7 +1571,11 @@ test('Hide lasts until the person shows it again, and the status line says how',
     status.push(e.text)
     return { value: undefined }
   })
-  on('command.register', (_, e) => ({ value: { command: e.name } }))
+  const registered: { name: string; immediate?: boolean }[] = []
+  on('command.register', (_, e) => {
+    registered.push(e as never)
+    return { value: { command: e.name } }
+  })
   on('session.start', (_, e) => ({ cwd: e.cwd }) as never)
   const cmd = async (args: string) =>
     (await $.command.run({ command: 'boss-live', args, origin: { kind: 'composer' }, presentation: 'inline' } as never)).text
@@ -1481,6 +1603,8 @@ test('Hide lasts until the person shows it again, and the status line says how',
 
   expect(await cmd('')).toContain('Type /boss-live to show it again')
   expect(await card($)).toBeNull()
+  // Typed mid-turn it runs at once, not after the turn.
+  expect(registered.find(r => r.name === 'boss-live')?.immediate).toBe(true)
 })
 
 test('Show less shrinks the card to one line on every surface; Show more brings it back', async ($, on) => {

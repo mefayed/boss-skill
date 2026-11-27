@@ -77,6 +77,9 @@ let edited = new Set<string>()
 // Files the builders edited this run, and those the last pass proved: an edit to one
 // of them before a new run makes that proof stale. Paths stay here, never drawn.
 let built = new Set<string>()
+// Builders whose last report was BLOCKED or NEEDS_CONTEXT: waking one clears the card's
+// "stuck" only when no other builder is still stuck.
+let blockedBuilders = new Set<string>()
 // Proven paths with their modified time at the pass (null when unknown).
 let proved: Map<string, number | null> | null = null
 let isProofStale = false
@@ -256,6 +259,7 @@ async function addJob($: $, id: string, job: BossLiveJob, goal: string | null = 
   if (isNewRun) {
     edited = new Set()
     built = new Set()
+    blockedBuilders = new Set()
     proved = null
     isProofStale = false
   }
@@ -305,6 +309,7 @@ async function endJob($: $, id: string | undefined, report = '') {
     const { [id]: _, ...jobs } = s.jobs
     const isLastBuilder = !Object.values(jobs).some(other => isBuilder(other.lane))
     const proof = withReport(s.proof, job.lane, report, isLastBuilder, now)
+    if (isBuilder(job.lane) && readStatus(report) === 'blocked') blockedBuilders.add(id)
     const isDone = Object.keys(jobs).length === 0
     const known = s.agents[id]
     const agents = known === undefined ? s.agents : { ...s.agents, [id]: { ...known, endedAt: now } }
@@ -510,11 +515,23 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
   return ran
 }
 
+// A stuck builder woken with its answer (boss's bounce) is working again, unless
+// another builder is still stuck.
+async function wake($: $, id: string) {
+  const known = (await read($, live)).agents[id]
+  if (known === undefined || !isBuilder(known.lane)) return
+  blockedBuilders.delete(id)
+  if (blockedBuilders.size > 0) return
+  await update($, live, now => (now.proof !== null && now.proof.verdict === null ? { ...now, proof: { ...now.proof, builder: 'working' as const } } : now))
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'boss-live',
       description: 'Show or hide the boss-live card',
+      // Typed while boss works, it runs at once instead of waiting for the turn to end.
+      immediate: true,
     })
     if ((await $.store.get('isHidden').catch(() => undefined)) === true) await setHidden($, true)
     // A reload forgets the timers: a Codex job still on the card gets its 45-minute limit again.
@@ -534,13 +551,24 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     const lane = laneOf(e.subagentType)
+    // A resume (boss's bounce, the inspector's phase 2) is a message to an agent that has
+    // its brief already: no REPO line to ask for, no lessons to add, no new builder.
+    if (e.resume !== undefined) {
+      const ran = await next(e)
+      if (ran.agentId !== undefined) await wake($, e.resume.agentId)
+      return ran
+    }
     // An agent that writes or tests must know which repo: one once inspected the wrong one.
     if (lane !== undefined && (isBuilder(lane) || lane === 'inspector') && !hasRepo(e.prompt)) return { deny: NEED_REPO }
     // The owner's lessons, read from disk at each dispatch, so one learned mid-run reaches the next agent.
     const prompt = lane === undefined ? e.prompt : withLessons(e.prompt, await recall($, lane))
     const ran = await next(prompt === e.prompt ? e : { ...e, prompt })
     if (lane !== undefined && ran.agentId !== undefined) {
-      if (isBuilder(lane)) await update($, live, s => ({ ...s, proof: withBrief(s.proof, e.prompt) }))
+      // A new builder resets "stuck" (withBrief), so the stuck list starts over with it.
+      if (isBuilder(lane)) {
+        blockedBuilders.clear()
+        await update($, live, s => ({ ...s, proof: withBrief(s.proof, e.prompt) }))
+      }
       await addJob($, ran.agentId, {
         lane,
         phase: LANES[lane]?.phase ?? 'building',
@@ -562,6 +590,7 @@ export const register: Register = on => {
       if (known !== undefined && s.jobs[e.agentId] === undefined) {
         const { endedAt: _, ...again } = known
         await addJob($, e.agentId, { ...again, startedAt: await $.clock.now() })
+        await wake($, e.agentId)
       }
     }
     return next(e)
@@ -763,7 +792,7 @@ export const register: Register = on => {
       ? 'needs your answer'
       : (PHASES.find(p => jobs.some(job => job.phase === p)) ?? (jobs.length > 0 ? 'working' : 'done'))
     const accent =
-      proof?.verdict === 'PASS' && jobs.length === 0 ? 'success' : proof?.verdict === 'FAIL' || proof?.builder === 'blocked' ? 'error' : (TONE[phase] ?? 'claude')
+      proof?.verdict === 'PASS' && jobs.length === 0 ? 'success' : proof?.verdict === 'FAIL' || (proof?.verdict === null && proof.builder === 'blocked') ? 'error' : (TONE[phase] ?? 'claude')
     const mood = isBetween
       ? 'Reviewing the work'
       : phase !== 'done'
@@ -882,7 +911,7 @@ export const register: Register = on => {
             ? isStale
               ? 'still'
               : 'done'
-            : proof?.verdict === 'FAIL' || proof?.builder === 'blocked'
+            : proof?.verdict === 'FAIL' || (proof?.verdict === null && proof.builder === 'blocked')
               ? 'failed'
               : isBetween
                 ? 'working'
