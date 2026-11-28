@@ -5,7 +5,7 @@ import type { BossLiveJob, BossLiveLane, BossLiveProof, BossLiveResult, BossLive
 import { outsideRun, readContract, readInspection, readQuestions, readStatus, short } from './boss-text'
 import { CARD_HEIGHT, cardSvg, type CardKind, type CardModel } from './card'
 import { bashRule, clean, inRoots, inScratch, scratchRoot, within, type Roots } from './guard'
-import { hasRepo, isLessonFile, NEED_REPO, NUDGE, REWRITE, overBudget, places, recall, repoLines, replyProblem, resultText, withLessons, withoutCode } from './learn'
+import { hasLine, hasRepo, isLessonFile, NEED_REPO, NUDGE, OPENING, OPENING_AGAIN, REWRITE, overBudget, places, recall, repoLines, replyProblem, resultText, withLessons, withoutCode } from './learn'
 import { redact } from './redact'
 
 // Change the tag when the state's fields change: it declines what an earlier
@@ -16,7 +16,20 @@ const live = atom(
   { shape: 'live-6' },
 )
 const isHidden = atom({ plugin: 'boss', key: 'isHidden' } as const, false)
-const learn = atom({ plugin: 'boss', key: 'learn' } as const, { isBoss: false, asked: false, wroteMemory: false, blocked: false }, { shape: 'learn-1' })
+const learn = atom(
+  { plugin: 'boss', key: 'learn' } as const,
+  { isBoss: false, ranBoss: false, asked: false, wroteMemory: false, blocked: false, saidTriage: false, saidAdding: false, openRefusals: 0 },
+  { shape: 'learn-3' },
+)
+// Where boss itself ran (its skill or /boss, not only a boss agent), a main-session edit or a boss
+// dispatch waits for `triage:`, and a build for `adding:` too: refused at most twice a turn (a bare
+// retry once got through a single refusal), never a loop. The refusal text, or null.
+async function openingRefusal($: $, isBuild: boolean): Promise<string | null> {
+  const s = await read($, learn)
+  if (!s.ranBoss || s.openRefusals >= 2 || (s.saidTriage && (s.saidAdding || !isBuild))) return null
+  await update($, learn, now => ({ ...now, openRefusals: now.openRefusals + 1 }))
+  return s.openRefusals === 0 ? OPENING : OPENING_AGAIN
+}
 // Hidden stays hidden (across runs and sessions) until /boss-live; the status line says how.
 const HIDDEN_HINT = 'boss-live hidden · type /boss-live'
 async function setHidden($: $, value: boolean) {
@@ -726,6 +739,8 @@ export const register: Register = on => {
     }
     // An agent that writes or tests must know which repo: one once inspected the wrong one.
     if (lane !== undefined && (isBuilder(lane) || lane === 'inspector') && !hasRepo(e.prompt)) return { deny: NEED_REPO }
+    const unopened = lane !== undefined && (isBuilder(lane) || lane === 'inspector') && e.parentAgentId === undefined ? await openingRefusal($, isBuilder(lane)) : null
+    if (unopened !== null) return { deny: unopened }
     // The owner's lessons, read from disk at each dispatch, so one learned mid-run reaches the next agent.
     const prompt = lane === undefined ? e.prompt : withLessons(e.prompt, await recall($, lane))
     const ran = await next(prompt === e.prompt ? e : { ...e, prompt })
@@ -780,7 +795,7 @@ export const register: Register = on => {
       mainTurnSeq = ++seq
       mainTurn = { id: e.turnId, running: true }
       // A turn with words of its own starts the reply checks over; a continuation does not.
-      if (e.text !== '') await update($, learn, s => ({ ...s, asked: false, wroteMemory: false, blocked: false }))
+      if (e.text !== '') await update($, learn, s => ({ ...s, asked: false, wroteMemory: false, blocked: false, saidTriage: false, saidAdding: false, openRefusals: 0 }))
       // A message typed over the last turn, now run as this one, answers the wait.
       const text = e.text.trim()
       const isAnswer = text !== '' && [...typedOver.values()].some(typed => typed.trim() !== '' && text.includes(typed.trim()))
@@ -797,6 +812,28 @@ export const register: Register = on => {
       }
     }
     return next(e)
+  })
+
+  // The main loop's words as they stream: the opening lines the edit and dispatch check needs.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId !== undefined) return yield* next(e)
+    const stream = next(e)
+    let text = ''
+    let block = -1
+    let said = { triage: false, adding: false }
+    for await (const chunk of stream) {
+      if (chunk.kind === 'text' && !(said.triage && said.adding)) {
+        text += (chunk.index === block ? '' : '\n') + chunk.text
+        block = chunk.index
+        const now = { triage: hasLine(text, 'triage'), adding: hasLine(text, 'adding') }
+        if (now.triage !== said.triage || now.adding !== said.adding) {
+          said = now
+          await update($, learn, s => ({ ...s, saidTriage: s.saidTriage || now.triage, saidAdding: s.saidAdding || now.adding }))
+        }
+      }
+      yield chunk
+    }
+    return await stream.result
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -881,7 +918,7 @@ export const register: Register = on => {
   on('classic.UserPromptSubmit', async ($, e, next) => {
     const ran = await next(e)
     if (e.agent_id !== undefined || (e.source !== undefined && e.source !== 'user' && e.source !== 'sdk')) return ran
-    if (/^\s*\/boss(?![\w-])/.test(e.prompt)) await update($, learn, s => ({ ...s, isBoss: true }))
+    if (/^\s*\/boss(?![\w-])/.test(e.prompt)) await update($, learn, s => ({ ...s, isBoss: true, ranBoss: true }))
     if (!(await read($, learn)).isBoss) return ran
     return { ...ran, additionalContext: [...(ran.additionalContext ?? []), NUDGE] }
   })
@@ -931,7 +968,7 @@ export const register: Register = on => {
     const agentId = e.agentId
     if (agentId !== undefined) inFlight.set(agentId, (inFlight.get(agentId) ?? 0) + 1)
     try {
-      if (e.agentId === undefined && e.tool === 'Skill' && /^(boss:)?boss$/.test(e.skill)) await update($, learn, s => ({ ...s, isBoss: true }))
+      if (e.agentId === undefined && e.tool === 'Skill' && /^(boss:)?boss$/.test(e.skill)) await update($, learn, s => ({ ...s, isBoss: true, ranBoss: true }))
       const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
       const at = path === undefined ? null : await places($)
       const target = path === undefined ? null : clean(path)
@@ -945,6 +982,9 @@ export const register: Register = on => {
         const over = text === null ? null : overBudget(target, text, at, String(await $.fs.read(target).catch(() => '')))
         if (over !== null) return { deny: `boss-live: ${over} — trim or merge lessons, then write` }
       }
+      const opens = e.agentId === undefined && target !== null && !isLesson && !inScratch(target, null, await scratchOf($))
+      const unopened = opens ? await openingRefusal($, false) : null
+      if (unopened !== null) return { deny: unopened }
       const ran = await bossCall($, e, next)
       const isDone = ran.deny === undefined && ran.isError !== true
       if (ran.deny === undefined && path !== undefined) staleIf($, path)

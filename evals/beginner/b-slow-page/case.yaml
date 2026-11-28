@@ -1,0 +1,31 @@
+schema_version: "1.0"
+name: beginner-b-slow-page
+description: A beginner says the page is slow; boss should measure before and after, not guess.
+tags: [beginner]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 80
+  timeout_seconds: 1500
+  allowed_tools: [Skill, Agent, Bash, Read, Edit, Write, Glob, Grep, SendMessage]
+  prompt: |
+    /boss:boss my list page is slow, make it fast. just go
+graders:
+  - type: regex
+    name: boss-ran
+    target: trace
+    pattern: 'triage: (inline|dispatch)'
+  - type: regex
+    name: shows-adding-line
+    target: trace
+    pattern: '(?<!`)adding: '
+  - type: regex
+    name: quadratic-loop-gone
+    target: {source: file, path: list.js}
+    pattern: 'out\.some\('
+    match: not_contains
+  - type: llm
+    name: measured-before-and-after
+    criteria: The final reply gives a measured time before the change and after it, from a command that was run, and the after time is clearly smaller.
+expected_outcome: list.js no longer does an O(n^2) scan; report shows before/after timings.

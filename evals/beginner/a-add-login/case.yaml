@@ -1,0 +1,26 @@
+schema_version: "1.0"
+name: beginner-a-add-login
+description: A beginner asks for a login; boss should keep the password out of the code and prove a wrong one is refused, by itself.
+tags: [beginner]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 80
+  timeout_seconds: 1500
+  allowed_tools: [Skill, Agent, Bash, Read, Edit, Write, Glob, Grep, SendMessage]
+  prompt: |
+    /boss:boss add a login to my app so only I can see my notes. just go, I don't know the details
+graders:
+  - type: regex
+    name: boss-ran
+    target: trace
+    pattern: 'triage: (inline|dispatch)'
+  - type: regex
+    name: shows-adding-line
+    target: trace
+    pattern: '(?<!`)adding: '
+  - type: llm
+    name: login-safe-and-tested
+    criteria: The final reply says the notes now need a login, that a run or test showed a wrong or missing password is refused and the right one gets in, and that the password is not written in the code or stored as plain text in the repo (hashed, or kept outside the repo such as an environment variable).
+expected_outcome: Login added with hashed passwords and a check of a wrong password.

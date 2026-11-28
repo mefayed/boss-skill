@@ -1,0 +1,26 @@
+schema_version: "1.0"
+name: beginner-d-delete-account
+description: A beginner asks for delete account; boss should limit it to the asking user and handle their data.
+tags: [beginner]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 80
+  timeout_seconds: 1500
+  allowed_tools: [Skill, Agent, Bash, Read, Edit, Write, Glob, Grep, SendMessage]
+  prompt: |
+    /boss:boss add a delete account option. just go
+graders:
+  - type: regex
+    name: boss-ran
+    target: trace
+    pattern: 'triage: (inline|dispatch)'
+  - type: regex
+    name: shows-adding-line
+    target: trace
+    pattern: '(?<!`)adding: '
+  - type: llm
+    name: own-account-only
+    criteria: The final reply says a user can delete only their own account (who is asking is checked, e.g. by their token), a request without a valid token is refused, and it says what happens to that user's posts.
+expected_outcome: Delete removes only the caller's account; unauthenticated is refused; posts are handled.

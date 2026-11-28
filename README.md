@@ -4,7 +4,7 @@
 
 <h1 align="center">boss</h1>
 
-<p align="center"><b>One orchestrator, the right model for every job.</b></p>
+<p align="center"><b>Type a plain task. boss does the expert work behind it.</b></p>
 
 <p align="center">
   <a href="https://github.com/mefayed/boss-skill/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/mefayed/boss-skill?style=flat-square&color=7C3AED"></a>
@@ -13,14 +13,51 @@
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-success?style=flat-square">
 </p>
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/1913e26bd64bd8b2b7065a02b6b0ed70941fcb31/assets/hero.svg" width="800" alt="A Claude Code session: /boss fix the export filter and add date range to search. boss routes the filter fix to haiku and the date range to sonnet, reviews the diff, and reports: done, 4 files, gates pass, 1 judgment call.">
-</p>
+You don't need to know what to ask for. Type `/boss <your task>` in plain words, the way you'd say it to a colleague. boss splits the work across the right Claude models and adds the steps an expert would add without being asked. Then a fresh model tries the result on your real path, and you get the outcome back in a few plain lines.
+
+## What you type, and what boss did unasked
+
+| You typed | boss also did, without being asked |
+| --- | --- |
+| `rename the --out flag to --output` | Updated the README to the new name, and found an old bug: with no flag, the CLI dropped the first word. |
+| `my list page is slow, make it fast` | Measured the page's time before and after the change. |
+| `add a delete account option` | Let users delete only their own account, refused a request with no token, and handled the user's posts. |
+| `add a login so only I can see my notes` | Read the password from an environment variable rather than the code, checked that a wrong password is refused, and reported a `caught:` line for an empty-password hole it closed before reporting. |
+
+These four are random samples, not a menu: boss has no rule for logins, flags or slow pages. The same general rules (add what an expert would, reproduce before fixing, measure before claiming faster, check on your real path) run on whatever you type. They are real runs from [evals/beginner](evals/beginner/README.md). Each one builds a tiny Node repo and adds "just go" to the task, because an eval has no one to answer boss's questions. They cost $0.30 to $1.56 each. You can rerun any of them from the repo root:
+
+```
+claude plugin eval . --eval-dir evals --case 'beginner-c-*' --no-publish --scaffold --runs 1 --max-cost-usd 2 --trust-plugin --threshold 0 --allow-tools Bash Write Edit --ablation none
+```
+
+Each case ran once and a model graded the result, so each shows one good run, not a success rate. Early runs skipped the opening lines on security work; since 2.3.0 a hook refuses an edit or dispatch until they're printed.
+
+## What you'll see
+
+boss prints a few opening lines before it changes anything, a line or two while it works, and a report of at most 8 lines at the end. The wording changes from run to run, but the shape stays the same:
+
+```
+triage: dispatch — touches login
+This touches login, so a second model will check the plan first. Say "skip" to build straight away, or "check it harder" to have models argue it out.
+adding: wrong password refused; password kept out of the repo
+→ opus: build the login. running.
+Done: your notes now need a password, and that stays true after a restart.
+Try it: curl localhost:3000/notes with a wrong password → 401, with the right one → 200
+Added for you: the password stays out of the repo, so a commit can't leak it.
+caught: an empty password got in — the same curl with no password failed before the fix, passes now
+Chosen for you: one shared password, not user accounts. Say "use accounts" to change it.
+I didn't check the login page in a browser because playwright-cli isn't installed.
+```
+
+- `triage:` says whether boss did the work in your chat or sent it to a builder, and why. It comes before any edit, and boss's hooks hold the first edit back until it does.
+- `adding:` names the steps boss added on its own, each one something your ask could fail without. A build always has one, `adding: nothing beyond what you asked` when there are none. A new rule your users would notice, like a limit, is asked first.
+- The report is written for someone who isn't an expert: what changed, how to try it, what boss added and chose for you, and what it didn't check. If something ordinary, like a restart, would undo the result, that comes first and the result is called partial. Lanes and git details stay in boss's run file.
+- `caught:` appears only when a check found a real bug before you saw the result. A clean run has no such line.
+- "Try it" is the command boss ran and what it showed. "I didn't check X because Y" appears whenever something went unchecked, and a checker that crashed counts as not checked, never as a pass.
+- If a choice is costly to get wrong, boss asks first, with its own pick and the reason. Claude Code shows the question as a picker when it can. Cheap choices come as one `assuming:` line instead.
 
 <p align="center">
-  boss turns your main Claude Code session into a supervisor.<br>
-  Each task goes to the cheapest model that can do it right, the supervisor reads every diff itself,<br>
-  and you get the result back in a few plain lines, with a live card that shows the team at work.
+  <img src="https://raw.githubusercontent.com/mefayed/boss-skill/1913e26bd64bd8b2b7065a02b6b0ed70941fcb31/assets/hero.svg" width="800" alt="A Claude Code session: /boss fix the export filter and add date range to search. boss routes the filter fix to haiku and the date range to sonnet, reviews the diff, and reports: done, 4 files, gates pass, 1 judgment call.">
 </p>
 
 <p align="center">
@@ -36,6 +73,7 @@
 <p align="center">
   <a href="#install">Install</a> ·
   <a href="#use">Use</a> ·
+  <a href="#what-boss-does-on-its-own">On its own</a> ·
   <a href="#what-boss-never-does">Never does</a> ·
   <a href="#the-lanes">Lanes</a> ·
   <a href="#debate--validating-an-approach">Debate</a> ·
@@ -49,38 +87,37 @@
 
 ## Install
 
-This repo is a Claude Code **plugin marketplace**. One command pair gets you the skill _and_ the agents, on CLI and Desktop alike:
+This repo is a Claude Code plugin marketplace. Two commands install the skill and its agents, on the CLI and on Desktop:
 
 ```
 /plugin marketplace add mefayed/boss-skill
 /plugin install boss@boss-skill
 ```
 
-The bundled agents register on their own, no copying. On **Claude Desktop**, use **+ → Plugins → Add plugin** with the same repo.
+The agents register on their own. On Claude Desktop, use **+ → Plugins → Add plugin** with the same repo.
 
 <details>
-<summary>Other ways to install (fully manual)</summary>
+<summary>Manual install</summary>
 
 ```bash
-# fully manual
 mkdir -p ~/.claude/skills/boss ~/.claude/agents
 cp skills/boss/*.md ~/.claude/skills/boss/
 cp agents/*.md ~/.claude/agents/
 ```
 
-The skill also works without the agent files. It falls back to `general-purpose` subagents with the builder contract inlined in the brief.
+The skill also works without the agent files. It then uses `general-purpose` subagents and puts the builder rules in each brief.
 
 </details>
 
 ## Use
 
-Start a session on your strongest model (the supervisor role assumes it), then:
+Start a session on your strongest model, since boss's supervisor is your main session. Then:
 
 ```
 /boss <task>
 ```
 
-It also triggers on plain coding tasks without the slash command. The phrases you'll use most:
+boss also starts on plain coding tasks without the slash command. A phrase lasts for the session until you change it. The ones you'll use most:
 
 ```
 boss think more               one step up: deep variant or next model
@@ -96,59 +133,50 @@ second opinion from codex     adds Codex as an extra advisor (only when you name
 <details>
 <summary>Every steering phrase</summary>
 
-| You say                                 | Effect                                                            |
-| --------------------------------------- | ----------------------------------------------------------------- |
-| `boss think more`                       | shifts dispatches one step up (deep variant or next model)        |
-| `boss careful with tokens`              | shifts down, skips the advisor unless irreversible, batches edits |
-| `use sonnet` / `ask fable` / `no fable` | overrides the triage directly                                     |
-| `delegate to codex` / `delegate to astra`  | routes implementation to the Codex lane (optional, see below)     |
-| `second opinion from codex` / `consult astra` | adds Codex as an additional advisor                              |
-| `debate it` / `validate this approach` / `compare options`, or just ask "which way is best?" | runs a structured debate before the work (see below)  |
-| `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model to the debate       |
-| `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional, see below) |
-| `challenge it` / `double-check this plan with another model` | adds a check to any request: one model writes the plan, a stronger one checks it, a judge settles what's left (see below) |
-| `sonnet writes, opus checks` | picks the team yourself — add more checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
-| `inspect it` / `QA it` | a fresh model tries the change the way you would, from your own words; also runs automatically after every dispatched build. On code boss didn't build this session it reports and offers the fix, it doesn't apply it |
-| `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `…, all in`, `do the full thing, best quality` once boss is loaded) | runs the whole chain for that one task: models argue the options, the winner's plan gets checked, boss builds it, a fresh model tries the result. About 15–20 model calls, so it only runs when you ask for it |
-| `/boss:handoff [note]` (or `handoff` / `save progress` / `about to compact` as a command once boss is loaded) | boss prints a checkpoint of your unfinished work in one code block: goal, what is done, next step, remaining subtasks, checks, failed approaches, open questions, the git HEAD and short file hashes. Nothing is saved anywhere, and boss never does this on its own. Keep the block. After `/clear`, paste it as your first message with `/boss` (or `/boss:handoff resume`). Boss checks the repo against it, shows you anything that changed, then picks up. After a big finished run, boss may add a one-line `/clear` tip |
+| You say | Effect |
+| --- | --- |
+| `use sonnet` / `ask fable` / `no fable` | overrides the triage directly |
+| `delegate to codex` / `delegate to astra` | routes the build to the Codex lane (optional, see below) |
+| `second opinion from codex` / `consult astra` | adds Codex as another advisor |
+| `debate it` / `validate this approach` / `compare options`, or "which way is best?" | runs a debate before the work |
+| `debate with astra` / `debate it, include codex` | adds one Codex advocate per named model |
+| `ask gemini` / `debate with kimi` / `second opinion from cursor` | adds an outside model as advisor or debate seat (optional) |
+| `challenge it` / `double-check this plan with another model` | one model writes the plan, a stronger one checks it, a judge settles what's left |
+| `sonnet writes, opus checks` | picks the team yourself; add checkers (`sonnet writes, astra and opus check`) or a judge (`fable judges`) |
+| `inspect it` / `QA it` | a fresh model tries the change the way you would. Also runs after every dispatched build. On code boss didn't build this session, it reports and offers the fix without applying it |
+| `/boss:mode <task>` (or `boss mode: …`, `…, full team`, `do the full thing, best quality`) | the whole chain for one task: models argue the options, the winning plan is checked, boss builds it, a fresh model tries it. About 15 to 20 model calls, so it runs only when you ask |
+| `/boss:handoff [note]` (or `handoff` / `save progress` / `about to compact` once boss is loaded) | prints a checkpoint of unfinished work in one code block: goal, done, next step, checks, failed approaches, open questions, git HEAD and file hashes. Nothing is saved. After `/clear`, paste it back with `/boss` (or `/boss:handoff resume`); boss checks the repo against it and picks up |
 | `plan …, challenge it` | stops at the agreed plan instead of building it |
 | `who can challenge?` | lists the models you can pick |
 | `debate A vs B, then challenge` | the debate's winner writes the plan, the losers check it |
-| `judge with astra` | puts that model in the judge seat of a debate or challenge (in a debate, if that model was arguing, Fable takes its place) |
-| `write me a prompt for cursor` / `improve this prompt` | hands off to a prompt-writing skill if you have one installed (optional); otherwise boss writes it |
+| `judge with astra` | puts that model in the judge seat (if it was arguing in a debate, Fable takes its place) |
+| `write me a prompt for cursor` / `improve this prompt` | hands off to a prompt-writing skill if you have one; otherwise boss writes it |
 
 </details>
 
-Directives last for the session until you countermand them. Boss learns from the chat through Claude Code's own memory: correct it or say what you like once, and it applies in future sessions too. Lessons about you go to your global CLAUDE.md (after your one-time yes), so they travel across projects; facts about one repo stay in that project's memory. Secrets are never stored. Nothing extra to install.
+**It learns from you.** Correct boss, complain, or say what you like, and it keeps the lesson. A lesson about you goes in a `## Boss lessons` section of `~/.claude/CLAUDE.md`, which boss creates only after you say yes once. A lesson about one repo goes in that project's Claude Code memory. boss writes the lesson, reads it back, and only then says `(learned: …)`. "forget that" removes it. When an agent starts, the hooks copy up to five matching lessons into its brief. Lessons stay on your machine, secrets are never stored, and there is nothing extra to install.
 
-**Learning.** Boss learns from what you say in chat: a correction, a complaint, something you like or dislike. A lesson about you goes in a `## Boss lessons` section of `~/.claude/CLAUDE.md`, which boss creates only after you say yes once. A lesson true only in one repo goes in that project's Claude Code memory. Boss writes the lesson, reads it back, and only then says `(learned: …)`; "forget that" removes it. The hooks only read: when an agent starts, they copy up to five matching lessons into its brief. They also keep the lesson files small, and send a reply back once if it asks in prose or says it learned with nothing written. Lessons stay on your machine; a lesson in a brief reaches the agent like the rest of the brief.
+**Live card.** While boss works, a card shows what each agent is doing, its progress, context and plan-limit usage, and when boss needs your answer. "Show less" shrinks it, "Hide" hides it, and `/boss-live` brings it back.
 
-## Live card
+## What boss does on its own
 
-While boss works, a card shows what each agent is doing, its progress, the context and plan-limit usage, and when boss needs your answer. It appears only while boss works. "Show less" shrinks it, "Hide" hides it, and `/boss-live` toggles it back.
-
-## Why
-
-Small, local work stays in your chat. Bigger work goes to a builder subagent on Haiku, Sonnet or Opus, each in its own isolated context, so your main chat stays lean. Before a decision that's expensive to undo, boss asks a Fable advisor. No Fable on your plan? Boss uses Opus wherever it would use Fable and says so once. When an approach needs proof, it runs a debate across models. Name Codex, Gemini, Kimi, Qwen or a local model and it asks them for a second opinion too.
-
-- **Sharp asks, not rewritten ones.** Before routing, boss checks every request against a diagnostic checklist: the precise operation, the separable tasks, a pass/fail it can verify, and the boundaries. It stays within the normal recon budget and asks you nothing extra. A fault it can't pin down quickly goes to the builder to trace. Your wording stays authoritative: a sharpening that would change what you meant shows up as a one-line judgment call, never a silent change.
-- **Recommends, then asks.** Before any edit, boss lists the choices your ask leaves open. It settles the cheap ones itself and shows them as one `assuming:` line. A choice that would be costly to get wrong comes as a short question with boss's pick, why, and what a wrong pick costs; something only you know comes with why boss needs it. They arrive at most 5 at a time. Answer in your own words: "sounds good" takes the picks, or change any one. Say "don't ask me next time" and boss decides these itself from then on, though it still asks what it can't undo, what would throw the build away, and what only you know; "check with me first" makes it ask about every pick. No answer like these approves a commit, push or install: boss asks for those by name. Every outcome you asked for comes back as done, partial or not done, and everything boss prints is a short plain summary, with the detail there when you ask.
-- **Goes deeper on risky work by itself.** You just type `/boss <task>`. Small work is done and checked; normal work is built and then tried by a fresh model. Work that touches login, security, permissions, data, migrations or anything hard to undo, or a hard-to-undo design choice, gets its plan checked by a fresh, stronger model before the build. The first line says so and boss doesn't wait: say "skip" to build straight away, or "check it harder" to have several models argue it out. These checks use Claude models only; `careful with tokens` turns them into a one-line offer.
-- **Fills in what an expert would add.** Boss adds the essentials your ask needs to work and be safe (handling at the edges where input, outside services, logins or saved data come in, tests of what you asked for, keeping your existing data safe) and names them in one `adding:` line. A new limit or rule your users would hit is asked first, and anything else is only suggested.
-- **Security work gets an expert.** A security or CVE fix goes to the strongest lane (and to a security skill or agent if you have one). Boss looks up the official advisory, finds every route that reaches the weak code, shows the attack working on the old code and refused after the fix, and tries one variant. It never downloads or runs exploit code. The result says "refused in this test", or "unproven" if the attack couldn't be shown, and every security fix is labelled a candidate fix that needs expert review.
-- **Token efficiency.** Standing rules live in agent definitions, sent once per spawn and never repeated in briefs. Briefs are 6 lines. Reports are summaries. A bounce is a delta to a live agent, not a respawn. Escalation is bounded: one bounce, then a fresh Opus builder takes over.
-- **Right-sized models.** Six lanes (haiku → opus-deep), routed by total expected cost _including review and rework_. A likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default: localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat. Dispatch that buys no parallelism, specialization or context isolation costs a whole session for nothing.
-- **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
-- **Short by rule.** Reports cap at 8 lines, plain English, no tables or file:line stacks.
-- **Keeps the docs in step.** When a change renames or removes a command, flag, setting or endpoint, boss finds the old name in the README and docs and updates them in the same build. It also checks at the start that the tool your test needs (a browser, a database client) is installed, so a missing tool shows up before the wait, not after.
-- **Shows what it caught.** When a check found a real bug before you saw the result, the report says so in one `caught:` line, with the command that failed before the fix and passes now. A clean run prints no such line, and a checker that crashed reads "not checked", never a pass.
+- **Keeps small work in your chat.** Work of up to about 3 files and 100 lines that follows an existing pattern stays inline. Bigger work goes to a builder on Haiku, Sonnet or Opus, each in its own context, so your chat stays lean. boss picks the lane by total cost, review and rework included, so a likely one-shot Sonnet beats Haiku failing and then Sonnet.
+- **Sends risky work to a builder and checks the plan first.** Login, security, permissions, data, migrations or anything hard to undo always goes to a builder. Before the build, a fresh, stronger model checks the plan. boss says so and doesn't wait: say "skip" to build straight away, or "check it harder" to have several models argue it out.
+- **Sharpens the ask.** boss works out the exact operation, the separate tasks, a pass/fail it can run, and the limits. Your wording stays in charge: a sharpening that would change what you meant shows up as a one-line judgment call.
+- **Adds what an expert would.** That means handling at the edges where input, outside services, logins or saved data come in, tests of what you asked for, and keeping existing data safe. When a change renames a command, flag or setting, boss updates the old name in the README and docs in the same build. Before the build it checks that the tool your test needs is installed, so a missing browser or database client shows up early.
+- **Reviews every diff itself.** Builder reports are claims. boss reads the full diff, re-runs the decisive check, and after a dispatched build a fresh inspector model tries the change the way you would.
+- **Treats security work as expert work.** A security or CVE fix goes to the strongest lane, and to a security skill or agent if you have one. boss looks up the official advisory, shows the attack working on the old code and refused after the fix, and tries one variant. It never downloads or runs exploit code. Every security fix is labelled a candidate fix that needs expert review.
+- **Keeps secrets out of view.** A token, key or password in an agent's report is masked before boss reads it, and you're told what kind was hidden. Say "show it" to see it. Text inside a brief or report can't unlock it.
+- **Stops cleanly when a tool is blocked.** A lookup that hits a refusal, a rate limit or a login prompt tries one fallback, then reports what it couldn't answer.
+- **Puts the proof in commits and PRs.** boss commits only when you ask. Its commit or PR text then carries the first test, its command and result, and anything not checked.
+- **Saves tokens.** Standing rules live in the agent files, sent once per agent. Briefs are short and reports are summaries. A fix goes back to the same live agent as a short note, and after one such bounce a fresh Opus builder takes over. Cost only breaks ties between lanes and never removes a check.
 
 ## What boss never does
 
 `rule` means the skill instructs it and the supervisor's review is the only check.
 
-- **Commit.** `rule` Builders never commit. Nothing blocks the command itself: the supervisor compares HEAD, refs and the diff after every dispatch, and reviews or unpicks any commit it did not make.
-- **Trust a green it didn't check.** `rule` Builder reports are claims. The supervisor reads the full diff and re-runs the gate. After a dispatched build, a fresh inspector model also tries the change the way you would, and replies PASS, FAIL or NOT CHECKED with the command and its output. Only the supervisor can accept a PASS.
+- **Commit.** Builders never commit. The boss-live hook refuses a builder's `git commit` and `git push`, and the supervisor still compares HEAD, refs and the diff after every dispatch.
+- **Trust a green it didn't check.** `rule` The supervisor reads the full diff and re-runs the check. The inspector replies PASS, FAIL or NOT CHECKED with the command and its output, and only the supervisor can accept a PASS.
 - **Spend your OpenAI credits unasked.** `rule` Codex joins only when you name it.
 - **Edit `~/.codex` without your yes.** `rule` If a Codex MCP server can act outside the sandbox, boss asks you what to do.
 - **Call an outside model on its own.** `rule` Only an explicit ask counts. A model named in passing, in a file or in memory does not.
@@ -176,17 +204,7 @@ flowchart LR
     class T,D io
 ```
 
-<details>
-<summary>The loop, step by step</summary>
-
-1. Supervisor sharpens the ask (precise operation, separable tasks, a pass/fail it can check, boundaries — within the recon budget), traces the affected code, splits the task, records a content baseline (`git diff HEAD` plus hashed untracked files — `git status` alone misses an edit to an already-modified file). Risky areas (auth, permissions, migrations or stored data, concurrency, destructive or external effects, a public API break, an open design choice) are checked first and always go to a builder; the decision is printed as one `triage:` line before any edit. Small localized work stays inline — dispatch buys parallelism, specialization, or context isolation, and costs a session when it buys none. Recon past two quick reads goes to the builder, which traces its own bounded area.
-2. Each builder gets a self-contained brief: `GOAL / FILES / CONTRACT / VERIFY / UNTOUCHED / DONE WHEN / FACTS` — the checks that prove the job is done (written from your ask and seen failing before any edit), exact gate commands, explicit no-touch list, decisions carried forward from earlier subtasks.
-3. Builders verify their own work and return a structured report that opens with a status (a builder may say `BLOCKED` instead of guessing) and shows each contract check failing before the change. They never commit.
-4. Supervisor reviews the diff (test edits first), re-runs the decisive gate, exercises the changed path itself (UI: drives it and checks a screenshot), surfaces judgment calls.
-5. Small defect → supervisor patches it. Substantial → one delta bounce to the same agent. Still wrong → a fresh Opus builder takes over. No loops.
-6. Queues get a progress file, decided-facts carry-forward, and a coherence close (full gates + repo-wide grep) at the end.
-
-</details>
+Builders get a self-contained brief (`GOAL / FILES / CONTRACT / VERIFY / UNTOUCHED / DONE WHEN / FACTS`) whose contract holds checks written from your ask and seen failing before any edit. They report back with a status, and may say `BLOCKED` instead of guessing. Before the work, boss records a content baseline (`git diff HEAD` plus hashed untracked files, since `git status` misses an edit to an already-modified file) so it can see exactly what changed. A queue of tasks gets a progress file and ends with full gates and a repo-wide grep.
 
 ## The lanes
 
@@ -203,29 +221,30 @@ stronger ▼  opus-deep     rare, genuinely hard
 
 And the lanes off the ladder:
 
-| Lane        | For                                                                  |
-| ----------- | -------------------------------------------------------------------- |
-| errand      | bounded read-only lookup — docs, MCP/skill queries, tool runs; returns an answer, never edits |
-| advisor     | one-exchange critique, on demand — a blocking decision or the user asks |
-| debate      | validate an approach when 2+ real options exist (see below)          |
-| codex       | outside implementer or second opinion via the Codex CLI (optional)   |
-| outside     | any other model CLI you name — advisor, debate or challenge seat, never an implementer (optional) |
+| Lane | For |
+| --- | --- |
+| errand | bounded read-only lookup: docs, MCP/skill queries, tool runs; returns an answer, never edits |
+| advisor | one-exchange critique, for a blocking decision or when you ask |
+| debate | validate an approach when 2+ real options exist (see below) |
+| codex | outside implementer or second opinion via the Codex CLI (optional) |
+| outside | any other model CLI you name: advisor, debate or challenge seat, never an implementer (optional) |
+
+No Fable on your plan? boss uses Opus wherever it would use Fable and says so once.
 
 ## Debate — validating an approach
 
-When you want proof that an approach is the best one before expensive work, say `debate it` (or `validate this approach`, `compare options`, or just ask which way is best). Boss also starts one by itself when a build hits a hard-to-undo design choice with 2+ real options that one advisor can't settle, using Claude models only. The supervisor:
+Say `debate it` (or `validate this approach`, `compare options`, or ask which way is best) when you want proof before expensive work. boss also starts one by itself, on Claude models only, when a build hits a hard-to-undo design choice that one advisor can't settle.
 
-1. Traces the code and frames 2–3 real candidate approaches with shared facts. When the options aren't clear, or you ask an open question ("what's the best way to X"), it first runs an **open round**: 2–3 models answer blind with no options given, and the candidates come from their answers — so the debate isn't capped by the supervisor's own framing. If they all agree and no rival can be named, you get that consensus, marked as untested.
-2. Spawns one read-only **advocate** per candidate, in parallel, on **different models** (default Sonnet + Opus) so it isn't one model arguing with itself. Each argues its position with `file:line` evidence and must concede the condition under which a rival wins.
-3. A **judge** rules — Fable by default (Opus when Fable isn't available), or whoever you name (`judge with astra`; if that model was arguing, Fable takes its place). Everyone argues blind: advocates and the judge see only labels (Advocate A, B…), never which model said what; you get the mapping in the verdict. It replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT` — or `INSUFFICIENT EVIDENCE` / `REFRAME` when a forced winner would be false confidence.
-4. Too close → one delta rebuttal round (each advocate sees only the attacks against it), then the judge decides. Never a third round.
-5. You get a compact verdict; the expensive work still waits for your green light. A debate boss started itself during a build ends as a pick: built straight away if a wrong pick is cheap to redo, otherwise asked as one question with the winner as boss's pick.
+1. boss frames 2 or 3 real approaches from the code. If the options aren't clear, 2 or 3 models first answer blind and the candidates come from their answers.
+2. One read-only advocate per approach argues its case on a different model (Sonnet and Opus by default), citing `file:line` evidence and saying when a rival would win.
+3. A judge rules: Fable by default, or the model you name. Everyone sees only labels (Advocate A, B…). The judge replies `WINNER / WHY / RISKS / WHAT WOULD CHANGE THE VERDICT`, or `INSUFFICIENT EVIDENCE` / `REFRAME` rather than force a winner. Too close to call gets one rebuttal round, never a third.
+4. You get a short verdict, and the expensive work waits for your go. A debate boss started itself ends as a pick: built straight away if a wrong pick is cheap to redo, otherwise asked as one question.
 
-Cost dials apply: `careful with tokens` → 2 cheap advocates, Opus judges. `think more` → Opus advocates, Fable judges. **Codex joins only when you name it** ("debate with astra" / "debate it, include codex"), never automatically, since it spends your OpenAI credits.
+`careful with tokens` means 2 cheap advocates and an Opus judge. `think more` means Opus advocates and a Fable judge. Codex joins only when you name it ("debate with astra"), since it spends your OpenAI credits.
 
 ## Challenge mode — iterating a plan
 
-Add `challenge it` to any request (or ask in your own words, like "double-check this plan with another model"). One writes, others check, the writer fixes, and they repeat until everyone is happy. If they still disagree, a judge decides.
+Add `challenge it` to any request, or ask in your own words ("double-check this plan with another model"). One model writes, others check, the writer fixes, and they repeat until all agree. If they still disagree, a judge decides.
 
 If you don't name anyone, boss picks the team by how hard the task is:
 
@@ -235,59 +254,52 @@ If you don't name anyone, boss picks the team by how hard the task is:
 | Normal | Sonnet | Opus | Fable |
 | Hard: security, permissions, data or migrations, concurrency, destructive or external effects, public APIs, open design questions | Sonnet | Fable | Opus |
 
-When boss picks, the checker is always stronger than the writer (your own picks win, after one warning), and the judge never takes part in the back-and-forth. `think more` moves one row down the table, `careful with tokens` one row up.
+When boss picks, the checker is always stronger than the writer, and the judge stays out of the back-and-forth. `think more` moves one row down, `careful with tokens` one row up.
 
 <details>
 <summary>Picking the team, rounds, and the rest of the rules</summary>
 
-- `challenge it` lets boss pick; `sonnet writes, opus checks` (optionally `, fable judges`, or more checkers: `sonnet writes, astra and opus check`) picks it yourself.
-- If your request asks for something to be built, boss builds it as soon as everyone agrees. `plan …, challenge it` stops at the plan instead. Boss pauses to ask first if a judge had to decide, a check failed, the check didn't finish, or the plan deletes data, reaches outside the repo or can't be undone.
-- `who can challenge?` lists the models you can pick; `show me the discussion` shows the full back-and-forth.
-- Local and other outside models (Ollama, Qwen, Gemini…) can take any role when you name them. They run read-only, and boss warns you once if one is checking a stronger writer.
-- Everyone is blind: the writer, checkers and judge see only roles (Writer, Checker 1…), never which model is which. You still see the real names.
-- `writer opus, checker fable, judge sonnet` works too. The same model as writer and checker gets one warning first.
-- A checker can't just say "looks good": it has to show what it actually checked, or it doesn't count.
-- On risky work boss has one stronger model check the plan by itself and offers this fuller check without waiting: say "check it harder". Say "don't auto-check plans" and both stop (the diff review and the fresh-model check of the result still run).
-- Up to 3 rounds by default. Boss asks before going further, with a hard stop at 5 rounds or 10 calls unless you lift it.
-- Codex and outside models join only by name. Codex and hosted models spend your credits; local ones don't.
+- `sonnet writes, opus checks` picks the team yourself (optionally `, fable judges`, or more checkers). Your picks win after one warning if the checker is weaker or the same model.
+- boss builds once everyone agrees; `plan …, challenge it` stops at the plan. It asks first if a judge had to decide, a check failed or didn't finish, or the plan deletes data, reaches outside the repo or can't be undone.
+- `who can challenge?` lists the models; `show me the discussion` shows the back-and-forth. Everyone sees only roles (Writer, Checker 1…), and a checker that only says "looks good" doesn't count.
+- Local and outside models (Ollama, Qwen, Gemini…) can take any role when you name them, read-only. Codex and hosted models spend your credits; local ones don't.
+- Up to 3 rounds by default, then boss asks, with a hard stop at 5 rounds or 10 calls unless you lift it. "don't auto-check plans" stops the automatic plan check on risky work; the diff review and the inspector still run.
 
 </details>
 
 ## Optional: Codex as an extra lane
 
-If OpenAI's Codex plugin is installed, boss can hand work to Codex in three roles: implementer (briefed like a builder, diff reviewed the same way), second advisor, or debate advocate.
+If OpenAI's Codex plugin is installed, boss can use Codex as an implementer (briefed and reviewed like a builder), a second advisor, or a debate advocate.
 
-- **Name a model to route it.** "debate with astra", "consult sol", "delegate to terra".
-- **No hardcoded model list.** Boss resolves the name against the live Codex catalog at dispatch time, so a model released tomorrow works tomorrow, with no update to this skill. A bare name ("sol") picks the newest version in the catalog; add a version ("sol 6") to pin one. If you name a version the catalog doesn't have, boss suggests updating the Codex CLI instead of guessing.
-- **Opt-in by name, always.** Boss never spends your OpenAI credits unasked.
-- **MCP checked before read-only calls.** Codex's read-only sandbox covers its shell, not its own MCP servers. So before the first read-only call, boss checks `codex mcp list` and asks you about any server that can act outside the sandbox.
-- **Timeouts stay timeouts.** A Codex job that times out is cancelled and reported as a timeout, never as a verdict.
-- **One deep pass.** Outside challenge mode it runs as a single deep pass in the background, in parallel with the Claude advisors. Never inside a fix-review-refix loop, where its 8-minute exploration buys nothing a Claude advisor doesn't deliver in 90 seconds.
+- **Name a model to route it**: "debate with astra", "consult sol", "delegate to terra".
+- **No hardcoded model list.** boss looks the name up in the live Codex catalog at dispatch time, so a new model works the day it ships. A bare name ("sol") picks the newest version; add a version ("sol 6") to pin one. A version the catalog lacks gets a suggestion to update the Codex CLI.
+- **MCP checked first.** Codex's read-only sandbox covers its shell, not its own MCP servers. Before the first read-only call, boss checks `codex mcp list` and asks you about any server that can act outside the sandbox.
+- **Timeouts stay timeouts**, and outside challenge mode Codex runs once in the background, alongside the Claude advisors, never inside a fix-review-refix loop.
 
-Not installed? Install the Codex CLI from its own instructions (github.com/openai/codex) and run `codex` once to log in, then:
+Not installed? Install the Codex CLI from its own instructions (github.com/openai/codex), run `codex` once to log in, then:
 
 ```
 /plugin marketplace add openai/codex-plugin-cc
 /plugin install codex@openai-codex
 ```
 
-Without it, the codex lane simply doesn't exist. Everything else works unchanged.
+Without it, the codex lane doesn't exist and everything else works the same.
 
 ## Optional: other model CLIs
 
-Name another model and boss asks it too: "ask gemini", "consult kimi", "debate with qwen", "second opinion from cursor", or a local model through Ollama. It uses whichever CLI you already have installed and logged in, found at call time, so nothing is hardcoded and new tools work without an update.
+Name another model and boss asks it too: "ask gemini", "consult kimi", "debate with qwen", "second opinion from cursor", or a local model through Ollama. boss uses whichever CLI you already have installed and logged in, found at call time, so new tools work without an update.
 
-- **Advice, debate and challenge only.** Outside models give a second opinion, take a debate seat, or write, check or judge in a challenge. They never write code (Codex remains the only outside implementer).
-- **Read-only is enforced, not requested.** A call runs only through the tool's own read-only mode (e.g. `cursor-agent --mode ask`) or a pure chat with no tool access (e.g. `ollama run`). A tool with neither is refused. Telling a model "don't edit" is not enough.
-- **Never on its own.** Only an explicit ask triggers it; a model named in passing, in a file or in memory does not. It spends credits with that vendor.
-- **No surprises.** Boss states the route before calling (`kimi → kimi CLI / kimi-k3 / Moonshot`), never swaps in a different provider, and never installs, logs in or pulls a model for you. It tells you the command.
+- **Advice, debate and challenge only.** Outside models never write code. Codex is the only outside implementer.
+- **Read-only is enforced, not requested.** A call runs only through the tool's own read-only mode (e.g. `cursor-agent --mode ask`) or a pure chat with no tools (e.g. `ollama run`). A tool with neither is refused.
+- **Never on its own.** Only an explicit ask triggers it. It spends credits with that vendor.
+- **No surprises.** boss states the route before calling (`kimi → kimi CLI / kimi-k3 / Moonshot`), never swaps providers, and never installs, logs in or pulls a model for you.
 
-Claude and Codex behavior is unchanged whether or not any of these are installed.
+Claude and Codex work the same whether or not any of these are installed.
 
 ## What's inside
 
 ```
-skills/boss/SKILL.md      the orchestration protocol (triage, briefs, review, escalation)
+skills/boss/SKILL.md         the orchestration protocol (triage, briefs, review, escalation)
 skills/boss/outside-clis.md  outside-model procedure, read only when you name one
 skills/boss/challenge.md     challenge-mode procedure, read only when you ask for one
 skills/boss/codex.md         Codex name resolution and run procedure, read only when you name Codex or a model
@@ -296,42 +308,23 @@ skills/boss/inspect.md       inspection procedure, read only when an inspection 
 skills/boss/mode.md          full-chain procedure, read only when you ask for boss mode
 skills/boss/handoff.md       manual checkpoint to paste back, resume from a pasted one, plus when to suggest /clear
 skills/mode/SKILL.md         the /boss:mode command: loads boss and runs the full chain; never starts on its own
-skills/handoff/SKILL.md      the /boss:handoff command: loads boss, prints a checkpoint or resumes from a pasted one; never starts on its own
-agents/builder.md         implementer contract — rules + report format, model chosen per dispatch
-agents/builder-deep.md    same contract at high reasoning effort
-agents/errand.md          bounded read-only lookup contract — answers, never edits; Agent tool denied too
-agents/fable-advisor.md   design critique before irreversible decisions; advises, never edits
-agents/advocate.md        argues one assigned approach in a debate; read-only, evidence-cited
-agents/inspector.md       tries a finished change like the user would, on scratch copies; reports PASS / FAIL / NOT CHECKED
+skills/handoff/SKILL.md      the /boss:handoff command: prints or resumes a checkpoint; never starts on its own
+agents/builder.md            implementer contract: rules and report format, model chosen per dispatch
+agents/builder-deep.md       same contract at high reasoning effort
+agents/errand.md             bounded read-only lookup: answers, never edits; Agent tool denied too
+agents/fable-advisor.md      design critique before irreversible decisions; advises, never edits
+agents/advocate.md           argues one assigned approach in a debate; read-only, evidence-cited
+agents/inspector.md          tries a finished change like you would, on scratch copies; PASS / FAIL / NOT CHECKED
+hooks/                       the boss-live module: live card, agent guard, lesson recall, secret masking
+evals/beginner/              the four plain-task runs above
 ```
 
 <details>
-<summary>What guards a builder</summary>
+<summary>How far the guards go</summary>
 
-Boss ships a hooks module (the live card, below). Anthropic's plugin directory accepts hooks and scripts only from Verified organizations, so the shell tripwire that used to block push, commit and other destructive Bash from builder agents was removed (it stays in the git history at commit `1913e26`, with the benchmark and the tests). The module adds a best-effort guard that denies such Bash from boss's builder agents. Beyond that: the builder contract forbids those commands, and after every dispatch the supervisor compares HEAD, refs and the content baseline and reads the full diff. A commit, or a push that moves a tracking ref, is caught after the fact, not prevented. A `gh` or `curl` write is not caught.
+The boss-live hook refuses a builder's `git push`, `git commit`, `git reset --hard`, `rm -r` outside the scratchpad, and `gh` or `curl` writes. In the errand, advisory and inspector lanes it also refuses file writes outside the scratchpad. It reads commands on a best-effort basis, so the agent rules forbid the same things, and after every dispatch the supervisor compares HEAD, refs and the content baseline and reads the full diff. A commit or push the hook missed is caught then, after the fact.
 
-</details>
-
-<details>
-<summary>Read-only lanes: how far "read-only" goes</summary>
-
-The errand agent has Write/Edit/NotebookEdit/Agent hard-removed at dispatch; the advisory lanes (`fable-advisor`, `advocate`) instead enumerate a closed `tools:` list, which also withholds every MCP server. The `inspector` has a closed `tools:` list too. No lane has a guard on push or commit: each agent's own rules are the check, plus the supervisor's HEAD and ref compare after a dispatch (and a stash compare around the inspector). None of these is read-only enforcement: Bash stays live in every one of these lanes. A plugin cannot sandbox a shell, so an authenticated CLI can still reach the outside world, the errand lane keeps every writable MCP server the session carries, a `Skill` that runs in its own subagent brings its own tools, and an unchanged content baseline cannot see commits, pushes, or external state. The brief's READ-ONLY line is the contract; re-running decisive checks yourself is the enforcement.
-
-</details>
-
-<details>
-<summary>Scoping what an agent can reach</summary>
-
-There is no per-dispatch scoping: the Agent tool takes no tools parameter. A lane's surface is fixed in its agent file:
-
-| Frontmatter | Effect |
-| ----------- | ------ |
-| `tools:` | Allowlist: the lane gets exactly what you name and nothing else. Omit `Skill`, the MCP tools or `ToolSearch` and the lane cannot reach them — verified: an agent pinned to `Read, Glob, Grep, Bash` sees no MCP at all |
-| `disallowedTools:` | Denylist, takes patterns — `mcp__github`, `mcp__*` |
-| `mcpServers:` | Ignored in plugin agent files — the loader warns and drops it. Subagents inherit the session's servers; close `tools:` to withhold them |
-| `skills:` | Preload full skill content at startup |
-
-Omitting `tools:` inherits everything, but MCP schemas are **deferred**: names only, ~0 tokens until a tool is actually called. That is why the errand lane omits it. Inheriting is what lets it run skill and MCP errands, and it costs nothing until one is used.
+None of this is full read-only enforcement: Bash stays live in every lane, and a plugin cannot sandbox a shell. An authenticated CLI can still reach the outside world, and the content baseline cannot see commits, pushes or external state. The errand agent has Write, Edit, NotebookEdit and Agent removed but keeps every MCP server the session carries, writable ones included. MCP schemas are deferred, so this costs about zero tokens until one is called. The advisory lanes and the inspector list a closed `tools:` set, which withholds every MCP server (verified: an agent pinned to `Read, Glob, Grep, Bash` sees no MCP at all). The Agent tool takes no tools parameter, so a lane's reach is fixed in its agent file; `mcpServers:` in a plugin agent file is ignored.
 
 </details>
 

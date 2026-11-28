@@ -1846,6 +1846,8 @@ function session(on: On, tool?: (e: { tool: string; command?: string; file_path?
   return { toasts, clock }
 }
 const begin = ($: Engine, turnId: string, text = '/boss add login') => $.turn.start({ text, turnId })
+// The turn's opening lines, streamed by the boss() world's main loop.
+const opened = async ($: Engine, turnId: string) => { for await (const _ of $.turn.step({ turnId, index: 0, model: 'claude-opus', messageCount: 1 })) void _ }
 const finish = ($: Engine, turnId: string, answer: string, reason: 'answer' | 'aborted' = 'answer') =>
   $.turn.complete({ answer, durationMs: 1, isAborted: reason === 'aborted', turnId, reason })
 const aborted = (agentId: string) => ({ answer: '', durationMs: 1, isAborted: true, turnId: `x-${agentId}`, agentId, reason: 'aborted' }) as const
@@ -2117,6 +2119,12 @@ test('C3: the reply check stays out of a session that never ran boss', async ($,
 const MEM = '/home/me/.claude/projects/-repo/memory'
 function boss(on: On, tool?: Parameters<typeof session>[1]) {
   const run = session(on, tool)
+  // The main loop's words: a boss run prints its opening lines before it dispatches.
+  on('turn.step', async function* (_, e) {
+    const text = 'triage: dispatch — touches login\nadding: nothing beyond what you asked'
+    yield { kind: 'text' as const, index: 0, text }
+    return { turnId: e.turnId, index: e.index, answer: text, toolUses: [], stopReason: 'tool_use' as const, usage: null }
+  })
   mock.env(on, { HOME: '/home/me' })
   on('session.cwd', () => ({ value: '/repo' }))
   on('session.root', () => ({ value: '/repo' }))
@@ -2369,12 +2377,14 @@ test('edits: a lesson write neither stales a pass nor lets a pass replace a fail
   boss(on)
   await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
   await begin($, 'm1')
+  await opened($, 'm1')
   await built($)
   await inspected($, 'A', PASSED)
   await $.tool.call({ tool: 'Write', file_path: `${MEM}/lesson.md`, content: 'when x: y' })
   expect(tone((await card($))?.source)).toBe('done')
   await typed($, 'next')
   await begin($, 'm2')
+  await opened($, 'm2')
   await built($, 'Add login 2')
   await inspected($, 'B', FAILED)
   await $.tool.call({ tool: 'Write', file_path: `${MEM}/lesson2.md`, content: 'when x: y' })
