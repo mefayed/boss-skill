@@ -5,6 +5,7 @@ import type { On } from 'claude-code'
 const NUDGE =
   'Boss: if this message corrects you or states a like, dislike or standing preference, save or sharpen the lesson (global or project) and read it back before saying learned.'
 const ASK = "Ask as numbered questions (`1. Q? — I'd pick X`) or the picker."
+const PICKER = 'Ask these choices through the AskUserQuestion picker (your pick first, marked Recommended), not as text lines.'
 const SAVE = 'Write the lesson and read it back before saying it is saved.'
 
 // A machine with a home folder, a repo and the files the test puts there; nothing real is read.
@@ -148,6 +149,25 @@ test('a prose "Reply go" ask is stopped once; numbered questions or the picker p
   await say($, 'and the TTL?')
   await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: 'TTL?', header: 'TTL', options: [], multiSelect: false }] } as never)
   expect(await stop($, 'Reply go to take my picks.')).toBeUndefined()
+})
+
+test('with the picker in the session, a choice asked as text goes back once; a fact question passes', async ($, on) => {
+  world(on)
+  on('tool.list', () => ({ value: [{ name: 'Read' }, { name: 'AskUserQuestion' }] }) as never)
+  await asBoss($)
+  const text = "Done.\n\n1. Build these as 2.2.6? — I'd pick yes: text only"
+  await say($, 'what next')
+  expect(await stop($, text)).toBe(PICKER)
+  expect(await stop($, text)).toBeUndefined()
+
+  await say($, 'and the TTL?')
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: 'TTL?', header: 'TTL', options: [], multiSelect: false }] } as never)
+  expect(await stop($, text)).toBeUndefined()
+
+  await say($, 'which token?')
+  expect(await stop($, '1. Which token do you use? — needed: I cannot see it')).toBeUndefined()
+  await say($, 'ok')
+  expect(await stop($, 'Done. Tests pass.')).toBeUndefined()
 })
 
 test('saying learned with no memory write this turn is stopped; after a write it passes', async ($, on) => {

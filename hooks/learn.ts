@@ -12,6 +12,7 @@ export const NUDGE =
 export const NEED_REPO = 'boss-live: add REPO: <absolute path> to the brief'
 export const REWRITE = 'boss: edit memory files with Edit, never rewrite them with Write — another session may have just added a lesson'
 const ASK_NUMBERED = "Ask as numbered questions (`1. Q? — I'd pick X`) or the picker."
+const ASK_PICKER = 'Ask these choices through the AskUserQuestion picker (your pick first, marked Recommended), not as text lines.'
 const SAVE_FIRST = 'Write the lesson and read it back before saying it is saved.'
 
 // The global CLAUDE.md and this project's auto-memory folder.
@@ -131,8 +132,11 @@ type Turn = { asked: boolean; wroteMemory: boolean }
 export const withoutCode = (answer: string) => answer.replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')
 
 // The reason to send the reply back once, or null.
-export function replyProblem(answer: string, turn: Turn): string | null {
+// With the picker in the session, a choice asked as text lines goes back too.
+export function replyProblem(answer: string, turn: Turn, hasPicker = false): string | null {
   const prose = withoutCode(answer)
+  const choice = /^\s*\d+[.)]\s.*\?.*\bI['’]d pick\b/m.test(prose) || /Reply\s+["“]?go\b/.test(prose)
+  if (hasPicker && choice && !turn.asked) return ASK_PICKER
   if (/Reply\s+["“]?go\b/.test(prose) && !/^\s*1\.\s.*\?/m.test(prose) && !turn.asked) return ASK_NUMBERED
   const claims = /\((?:learned|noted)\s*:(?!\s*(?:none|nothing)\b)|saved (?:it |this |that )?to memory|I['’]ve saved\b[^.\n]{0,40}\b(?:memory|lesson|preference|rule)/i
   if (claims.test(prose) && !turn.wroteMemory) return SAVE_FIRST

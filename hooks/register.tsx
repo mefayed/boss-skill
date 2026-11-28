@@ -890,7 +890,8 @@ export const register: Register = on => {
     const ran = await next(e)
     const s = await read($, learn)
     if (e.agent_id !== undefined || e.stop_hook_active || s.blocked || !s.isBoss) return ran
-    const problem = replyProblem(e.last_assistant_message ?? '', s)
+    const hasPicker = await $.tool.list().then(tools => tools.some(t => t.name === 'AskUserQuestion'), () => false)
+    const problem = replyProblem(e.last_assistant_message ?? '', s, hasPicker)
     if (problem === null) return ran
     await update($, learn, now => ({ ...now, blocked: true }))
     return { ...ran, block: problem }

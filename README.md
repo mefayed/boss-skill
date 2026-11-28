@@ -140,6 +140,7 @@ Small, local work stays in your chat. Bigger work goes to a builder subagent on 
 - **Right-sized models.** Six lanes (haiku → opus-deep), routed by total expected cost _including review and rework_. A likely one-shot Sonnet beats Haiku-fail-then-Sonnet. Inline is the default: localized work (≤3 files, ≤~100 non-generated lines, an existing pattern, fast deterministic gates) never leaves main chat. Dispatch that buys no parallelism, specialization or context isolation costs a whole session for nothing.
 - **Review-first.** The supervisor reads the actual diff in full, re-runs the decisive gate itself, and checks test edits before trusting green. Builder reports are claims, not evidence. Builders never commit.
 - **Short by rule.** Reports cap at 8 lines, plain English, no tables or file:line stacks.
+- **Shows what it caught.** When a check found a real bug before you saw the result, the report says so in one `caught:` line, with the command that failed before the fix and passes now. A clean run prints no such line, and a checker that crashed reads "not checked", never a pass.
 
 ## What boss never does
 
