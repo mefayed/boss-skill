@@ -1,0 +1,26 @@
+schema_version: "1.0"
+name: beginner-e-multi-part
+description: A beginner asks for three things at once; boss should cover all three, each with its own proof, and handle CSV commas and quotes unasked.
+tags: [beginner]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 120
+  timeout_seconds: 2400
+  allowed_tools: [Skill, Agent, Bash, Read, Edit, Write, Glob, Grep, SendMessage]
+  prompt: |
+    /boss:boss let me search my notes by a word, let me download all my notes as a CSV file, and stop empty notes from being saved. just go
+graders:
+  - type: regex
+    name: boss-ran
+    target: trace
+    pattern: 'triage: (inline|dispatch)'
+  - type: regex
+    name: shows-adding-line
+    target: trace
+    pattern: '(?<!`)adding: '
+  - type: llm
+    name: all-three-proven
+    criteria: The final reply covers all three asks (search by a word, CSV download, empty notes refused), each with its own check that was run (a test or a direct call of the code counts; the eval sandbox blocks a running server, so the reply may say it could not start one), and the CSV handles a note that contains a comma or a double quote (quoted or escaped) so the file still opens correctly.
+expected_outcome: Search, CSV export and empty-note refusal all built and each proven; CSV quotes commas and quotes.

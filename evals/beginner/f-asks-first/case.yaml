@@ -1,0 +1,23 @@
+schema_version: "1.0"
+name: beginner-f-asks-first
+description: A beginner asks for accounts with no detail; boss should ask how they should work and build nothing yet.
+tags: [beginner]
+runs: 1
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 40
+  timeout_seconds: 900
+  allowed_tools: [Skill, Agent, Bash, Read, Edit, Write, Glob, Grep, SendMessage]
+  prompt: |
+    /boss:boss add accounts to my app
+graders:
+  - type: regex
+    name: nothing-built
+    target: {source: file, path: server.js}
+    pattern: 'password|signup|sign-up|register|session|token'
+    match: not_contains
+  - type: llm
+    name: asks-before-building
+    criteria: The final reply asks the person at least one question about how accounts should work (for example how people sign in, or what each account can see), gives a suggested answer, and does not claim anything was built.
+expected_outcome: Boss asks its open product questions and waits; server.js is unchanged.

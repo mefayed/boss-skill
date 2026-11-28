@@ -9,12 +9,12 @@ type $ = EngineInterface
 
 export const NUDGE =
   'Boss: if this message corrects you or states a like, dislike or standing preference, save or sharpen the lesson (global or project) and read it back before saying learned.'
+// The opening lines boss prints before it acts. A reminder beside the person's message, never a
+// refusal: refusing edits until they appeared made live runs stall or give up (2026-11-28).
+export const OPEN_NUDGE =
+  'Boss: before this turn\'s first edit or agent, start a line with `triage:`, then for a build one with `adding:` naming the expert steps you add (or `adding: nothing beyond what you asked`).'
 export const NEED_REPO = 'boss-live: add REPO: <absolute path> to the brief'
 export const REWRITE = 'boss: edit memory files with Edit, never rewrite them with Write — another session may have just added a lesson'
-export const OPENING =
-  'boss: print the opening lines first: the `triage:` line, and before a build the `adding:` line (`adding: nothing beyond what you asked` when none), then try again'
-export const OPENING_AGAIN =
-  'boss: still no opening lines in this turn\'s chat text. A mention inside a sentence or a file does not count: start a line with `triage:` (and one with `adding:` before a build), then make this call again'
 const ASK_NUMBERED = "Ask as numbered questions (`1. Q? — I'd pick X`) or the picker."
 const ASK_PICKER = 'Ask these choices through the AskUserQuestion picker (your pick first, marked Recommended), not as text lines.'
 const SAVE_FIRST = 'Write the lesson and read it back before saying it is saved.'
@@ -128,9 +128,6 @@ export function overBudget(path: string, text: string, at: Places, before = ''):
     ? `a memory topic file may hold 25 lines and 1500 characters, frontmatter not counted; this makes ${lines} lines, ${chars} characters`
     : null
 }
-
-// Whether the text holds a `<word>:` line, bold or quoted marks allowed before it.
-export const hasLine = (text: string, word: string) => new RegExp(`^[\\s>*_\`-]*${word}:`, 'im').test(text)
 
 // What this turn did that the reply checks need.
 type Turn = { asked: boolean; wroteMemory: boolean }

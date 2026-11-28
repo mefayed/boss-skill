@@ -30,7 +30,7 @@ These four are random samples, not a menu: boss has no rule for logins, flags or
 claude plugin eval . --eval-dir evals --case 'beginner-c-*' --no-publish --scaffold --runs 1 --max-cost-usd 2 --trust-plugin --threshold 0 --allow-tools Bash Write Edit --ablation none
 ```
 
-Each case ran once and a model graded the result, so each shows one good run, not a success rate. Early runs skipped the opening lines on security work; since 2.3.0 a hook refuses an edit or dispatch until they're printed.
+Each case ran once and a model graded the result, so each shows one good run, not a success rate. Early runs sometimes skipped the opening lines; boss now gets a short reminder beside each of your messages to print them.
 
 ## What you'll see
 

@@ -79,13 +79,6 @@ export type BossLearnState = {
   wroteMemory: boolean
   // A reply was already sent back this turn.
   blocked: boolean
-  // Boss itself ran (its skill or /boss), not only a boss agent.
-  ranBoss: boolean
-  // The main session printed its `triage:` / `adding:` line this turn.
-  saidTriage: boolean
-  saidAdding: boolean
-  // Edits or dispatches refused for the opening lines this turn (at most 2).
-  openRefusals: number
 }
 
 declare module 'claude-code' {

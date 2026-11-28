@@ -4,12 +4,12 @@ import type { On } from 'claude-code'
 
 const NUDGE =
   'Boss: if this message corrects you or states a like, dislike or standing preference, save or sharpen the lesson (global or project) and read it back before saying learned.'
+const OPEN_NUDGE =
+  'Boss: before this turn\'s first edit or agent, start a line with `triage:`, then for a build one with `adding:` naming the expert steps you add (or `adding: nothing beyond what you asked`).'
 const ASK = "Ask as numbered questions (`1. Q? — I'd pick X`) or the picker."
 const PICKER = 'Ask these choices through the AskUserQuestion picker (your pick first, marked Recommended), not as text lines.'
 const SAVE = 'Write the lesson and read it back before saying it is saved.'
 
-// What the model says in the next step of the main loop (speak).
-let words = ''
 // A machine with a home folder, a repo and the files the test puts there; nothing real is read.
 const HOME = '/home/me'
 const REPO = '/work/my repo'
@@ -38,10 +38,6 @@ function world(on: On, files: Record<string, { text: string; at?: number }> = {}
   on('classic.UserPromptSubmit', () => ({}))
   on('classic.Stop', () => ({}))
   on('ui.toast', () => ({ value: undefined }))
-  on('turn.step', async function* (_, e) {
-    yield { kind: 'text' as const, index: 0, text: words }
-    return { turnId: e.turnId, index: e.index, answer: words, toolUses: [], stopReason: 'tool_use' as const, usage: null }
-  })
 
   return prompts
 }
@@ -74,14 +70,14 @@ test('a boss session gets the learning nudge on each prompt; another session doe
   expect((await $.classic.UserPromptSubmit({ prompt: 'no, keep it shorter' })).additionalContext ?? []).toEqual([])
 
   await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
-  expect((await $.classic.UserPromptSubmit({ prompt: 'no, keep it shorter' })).additionalContext).toEqual([NUDGE])
+  expect((await $.classic.UserPromptSubmit({ prompt: 'no, keep it shorter' })).additionalContext).toEqual([NUDGE, OPEN_NUDGE])
 })
 
 test('a prompt that starts with /boss turns the nudge on, and the card command does not', async ($, on) => {
   world(on)
   expect((await $.classic.UserPromptSubmit({ prompt: '/boss-live' })).additionalContext ?? []).toEqual([])
-  expect((await $.classic.UserPromptSubmit({ prompt: '/boss fix the parser' })).additionalContext).toEqual([NUDGE])
-  expect((await $.classic.UserPromptSubmit({ prompt: 'thanks' })).additionalContext).toEqual([NUDGE])
+  expect((await $.classic.UserPromptSubmit({ prompt: '/boss fix the parser' })).additionalContext).toEqual([NUDGE, OPEN_NUDGE])
+  expect((await $.classic.UserPromptSubmit({ prompt: 'thanks' })).additionalContext).toEqual([NUDGE, OPEN_NUDGE])
 })
 
 const CLAUDE_MD = `# My rules
@@ -341,7 +337,6 @@ test('flow 7: a boss run under the guard: a builder loops over its files, an ins
   world(on, { [`${MEMORY}/MEMORY.md`]: { text: index } })
   await asBoss($)
   await say($, '/boss rename the flag, and from now on keep reports short')
-  await speak($, 'triage: dispatch — renames across files\nadding: nothing beyond what you asked')
   const built = await spawn($, 'boss:builder', `GOAL: rename the flag\n**REPO:** \`${REPO}\`\nFILES: src/*.ts`, 'build')
   const inspected = await spawn($, 'boss:inspector', `REPO: ${REPO} (the app)\nCONTRACT: flag renamed`, 'inspect')
   expect([(built as { deny?: string }).deny, (inspected as { deny?: string }).deny]).toEqual([undefined, undefined])
@@ -357,89 +352,4 @@ test('flow 7: a boss run under the guard: a builder loops over its files, an ins
   const trim = await $.tool.call({ tool: 'Edit', file_path: `${MEMORY}/MEMORY.md`, old_string: '- [Lesson 51](l51.md) — when 51: do it', new_string: '- [Short](short.md) — when reporting: keep it short' })
   expect(trim.deny).toBeUndefined()
   expect(await stop($, 'Renamed and proven. (learned: keep reports short)')).toBeUndefined()
-})
-
-// The model's words this turn, streamed as one step of the main loop.
-async function speak($: Engine, text: string) {
-  words = text
-  for await (const _ of $.turn.step({ turnId: `m${turns}`, index: 0, model: 'claude-opus', messageCount: 1 })) void _
-}
-const OPENING =
-  'boss: print the opening lines first: the `triage:` line, and before a build the `adding:` line (`adding: nothing beyond what you asked` when none), then try again'
-const AGAIN =
-  'boss: still no opening lines in this turn\'s chat text. A mention inside a sentence or a file does not count: start a line with `triage:` (and one with `adding:` before a build), then make this call again'
-const edit = async ($: Engine, agentId?: string) =>
-  (await $.tool.call({ tool: 'Edit', file_path: `${REPO}/src/a.ts`, old_string: 'a', new_string: 'b', agentId })).deny
-
-test('opening 1: in a boss turn with no triage: line, an edit or a boss dispatch is refused twice, then passes', async ($, on) => {
-  world(on)
-  await asBoss($)
-  await say($, '/boss add a delete account option')
-  expect(await edit($)).toBe(OPENING)
-  expect(await edit($)).toBe(AGAIN)
-  expect(await edit($)).toBeUndefined()
-
-  await say($, 'and a dark mode')
-  expect((await $.tool.call({ tool: 'Write', file_path: `${REPO}/src/b.ts`, content: 'x' })).deny).toBe(OPENING)
-  expect((await $.tool.call({ tool: 'Write', file_path: `${REPO}/src/b.ts`, content: 'x' })).deny).toBe(AGAIN)
-  expect((await $.tool.call({ tool: 'Write', file_path: `${REPO}/src/b.ts`, content: 'x' })).deny).toBeUndefined()
-
-  await say($, 'and a notebook')
-  expect((await $.tool.call({ tool: 'NotebookEdit', notebook_path: `${REPO}/nb.ipynb`, new_source: 'x' } as never)).deny).toBe(OPENING)
-
-  for (const lane of ['boss:builder', 'boss:builder-deep', 'boss:inspector']) {
-    await say($, `go ${lane}`)
-    expect((await spawn($, lane, `REPO: ${REPO}\nGOAL: x`, lane)).deny).toBe(OPENING)
-    expect((await spawn($, lane, `REPO: ${REPO}\nGOAL: x`, lane)).deny).toBe(AGAIN)
-    expect((await spawn($, lane, `REPO: ${REPO}\nGOAL: x`, lane)).deny).toBeUndefined()
-  }
-})
-
-test('opening 2: a builder dispatch with triage: but no adding: line is refused twice; an inspector or an edit passes', async ($, on) => {
-  world(on)
-  await asBoss($)
-  await say($, '/boss add a delete account option')
-  await speak($, 'triage: dispatch — touches persistent data')
-  expect(await edit($)).toBeUndefined()
-  expect((await spawn($, 'boss:inspector', `REPO: ${REPO}\nASK: x`, 'check')).deny).toBeUndefined()
-  expect((await spawn($, 'boss:builder', `REPO: ${REPO}\nGOAL: x`)).deny).toBe(OPENING)
-  expect((await spawn($, 'boss:builder', `REPO: ${REPO}\nGOAL: x`, 'again')).deny).toBe(AGAIN)
-  expect((await spawn($, 'boss:builder', `REPO: ${REPO}\nGOAL: x`, 'third')).deny).toBeUndefined()
-})
-
-test('opening 3: with both lines printed earlier in the turn, edits and dispatches pass; a new message starts over', async ($, on) => {
-  world(on)
-  await asBoss($)
-  await say($, '/boss add a delete account option')
-  await speak($, 'Looking at the store.\n**triage:** dispatch — touches persistent data\n')
-  await speak($, 'adding: the delete survives a restart; a test of it')
-  expect(await edit($)).toBeUndefined()
-  expect((await spawn($, 'boss:builder', `REPO: ${REPO}\nGOAL: x`)).deny).toBeUndefined()
-  expect((await spawn($, 'boss:builder-deep', `REPO: ${REPO}\nGOAL: x`, 'deep')).deny).toBeUndefined()
-  expect((await spawn($, 'boss:inspector', `REPO: ${REPO}\nASK: x`, 'check')).deny).toBeUndefined()
-
-  // A line that only mentions the word is not the line.
-  await say($, 'now the export')
-  await speak($, 'I will print the triage: line soon')
-  expect(await edit($)).toBe(OPENING)
-})
-
-test('opening 4: a non-boss session, subagent calls and lesson or scratchpad writes are never refused', async ($, on) => {
-  world(on)
-  await say($, 'add a flag')
-  expect(await edit($)).toBeUndefined()
-
-  await asBoss($)
-  await say($, '/boss add a flag')
-  const b = `${(await spawn($, 'boss:builder', `REPO: ${REPO}\nGOAL: x`, 'first')).agentId}`
-  await say($, 'go on')
-  expect(await edit($, b)).toBeUndefined()
-  const child = await $.agent.spawn({
-    tool_use_id: 't-child', prompt: `REPO: ${REPO}\nGOAL: x`, description: 'child', subagentType: 'boss:builder',
-    provider: { plugin: 'boss', tier: 'user' }, parentModel: 'claude-opus', background: true, fork: false, parentAgentId: b,
-  })
-  expect(child.deny).toBeUndefined()
-  expect((await $.tool.call({ tool: 'Write', file_path: `${MEMORY}/plain.md`, content: 'when reporting: plain words' })).deny).toBeUndefined()
-  expect((await $.tool.call({ tool: 'Write', file_path: '/private/tmp/claude-501/p/s1/scratchpad/boss-run-x.md', content: 'x' })).deny).toBeUndefined()
-  expect(await edit($)).toBe(OPENING)
 })
