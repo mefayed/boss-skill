@@ -3007,3 +3007,266 @@ test('R8: no secret, no call; one call a turn; what was hidden is forgotten afte
   await say('ok')
   expect(await say('show it')).toBe('show it')
 })
+
+// --- The working line: boss on a task itself, with no agent on the card. ---
+
+const LINE = (took: string) => `boss · working on your task · ${took}`
+const read = ($: Engine) => $.tool.call({ tool: 'Read', file_path: '/repo/README.md' })
+// Every redraw the hook asks for.
+function redraws(on: On) {
+  const asked = { n: 0 }
+  on('ui.invalidate', (_, e, next) => {
+    asked.n += 1
+    return next(e)
+  })
+  return asked
+}
+
+test('L1: a boss turn that made a call shows one line after 20 s; before, or with no call, nothing', async ($, on) => {
+  const { clock } = boss(on)
+  await $.classic.UserPromptSubmit({ prompt: '/boss tidy the readme' })
+  await begin($, 'm1', '/boss tidy the readme')
+  await clock.advance(60_000)
+  expect(await band($)).toEqual([])
+  await read($)
+  expect(await band($)).toEqual([LINE('1m 0s')])
+  await finish($, 'm1', 'Done.')
+
+  await begin($, 'm2', '/boss tidy the changelog')
+  await clock.advance(5000)
+  await read($)
+  await clock.advance(14_000)
+  expect(await band($)).toEqual([])
+  expect(await card($)).toBeNull()
+  await clock.advance(1000)
+  expect(await band($)).toEqual([LINE('20s')])
+  for (const surface of ['desktop', 'vscode'] as const) expect(await band($, surface)).toEqual([LINE('20s')])
+  await clock.advance(60_000)
+  expect(await band($)).toEqual([LINE('1m 20s')])
+})
+
+test('L1: the boss skill called in the turn counts as a boss turn', async ($, on) => {
+  const { clock } = boss(on)
+  await begin($, 'm1', 'delegate this: tidy the readme')
+  await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
+  await clock.advance(20_000)
+  expect(await band($)).toEqual([LINE('20s')])
+})
+
+test('L2: the line redraws itself each second while it shows, and only then', async ($, on) => {
+  const { clock } = boss(on)
+  const asked = redraws(on)
+  await $.classic.UserPromptSubmit({ prompt: '/boss tidy the readme' })
+  await begin($, 'm1', '/boss tidy the readme')
+  await read($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const shown = async () => (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  await clock.advance(19_000)
+  expect(await shown()).toEqual([])
+  expect(asked.n).toBe(0)
+  await clock.advance(1000)
+  expect(await shown()).toEqual([LINE('20s')])
+  await clock.advance(1000)
+  expect(await shown()).toEqual([LINE('21s')])
+  const before = asked.n
+  await clock.advance(9000)
+  expect(await shown()).toEqual([LINE('30s')])
+  expect(asked.n - before).toBe(9)
+  await finish($, 'm1', 'Done.')
+  expect(await shown()).toEqual([])
+  const after = asked.n
+  await clock.advance(10_000)
+  expect(asked.n).toBe(after)
+  await ui.unmount()
+})
+
+test('L3: the line goes the moment the turn ends, however it ends, and the full card always wins', async ($, on) => {
+  let picked: string[] = []
+  const { clock } = boss(on, async e => {
+    if (e.tool === 'AskUserQuestion') picked = await band($)
+    return { result: {} }
+  })
+  await $.classic.UserPromptSubmit({ prompt: '/boss tidy the readme' })
+  const working = async (turnId: string) => {
+    await begin($, turnId, '/boss tidy the readme')
+    await read($)
+    await clock.advance(20_000)
+    expect(await band($)).toEqual([LINE('20s')])
+  }
+  await working('m1')
+  await finish($, 'm1', 'Done.')
+  expect(await band($)).toEqual([])
+  await working('m2')
+  await finish($, 'm2', '', 'aborted')
+  expect(await band($)).toEqual([])
+  await working('m3')
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 'm3', reason: 'error' })
+  expect(await band($)).toEqual([])
+
+  // A question waiting in the picker.
+  await working('m4')
+  const option = { label: 'Yes', description: 'x' }
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [{ question: 'Which?', header: 'H', options: [option, { label: 'No', description: 'y' }], multiSelect: false }] })
+  expect(picked).toContain(' BOSS ')
+  expect(picked).not.toContain(LINE('20s'))
+  expect(await band($)).toEqual([LINE('20s')])
+
+  // A boss agent at work, then the proof it left pending.
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet', BRIEF)
+  let lines = await band($)
+  expect(lines).toContain(' BOSS ')
+  expect(lines.join('\n')).not.toContain('working on your task')
+  await $.turn.complete(done('STATUS: DONE', b))
+  lines = await band($)
+  expect(lines).toContain('built, being proven')
+  expect(lines.join('\n')).not.toContain('working on your task')
+})
+
+test('L4: a timer from an old turn never redraws for the new one', async ($, on) => {
+  const { clock } = boss(on)
+  const asked = redraws(on)
+  await $.classic.UserPromptSubmit({ prompt: '/boss tidy the readme' })
+  await begin($, 'm1', '/boss tidy the readme')
+  await read($)
+  await clock.advance(5000)
+  await finish($, 'm1', 'Done.')
+  await begin($, 'm2', '/boss tidy the changelog')
+  await read($)
+  const before = asked.n
+  // m1's 20 s comes due here: m2 has run 15 s.
+  await clock.advance(15_000)
+  expect(asked.n).toBe(before)
+  expect(await band($)).toEqual([])
+  await clock.advance(5000)
+  expect(asked.n).toBe(before + 1)
+  expect(await band($)).toEqual([LINE('20s')])
+})
+
+test('L4: the line\'s clock from an old turn stops once a new turn starts, with no end seen between', async ($, on) => {
+  const { clock } = boss(on)
+  const asked = redraws(on)
+  await $.classic.UserPromptSubmit({ prompt: '/boss tidy the readme' })
+  await begin($, 'm1', '/boss tidy the readme')
+  await read($)
+  await clock.advance(20_000)
+  expect(await band($)).toEqual([LINE('20s')])
+  await clock.advance(1000)
+  expect(asked.n).toBe(2)
+  // No turn.complete for m1: the next turn's start alone retires its clock.
+  await begin($, 'm2', '/boss tidy the changelog')
+  const before = asked.n
+  await clock.advance(10_000)
+  expect(asked.n).toBe(before)
+})
+
+test('L5: a session that never ran boss shows no line; a later /boss turn does', async ($, on) => {
+  const { clock } = boss(on)
+  await begin($, 'm1', 'explain the flags')
+  await read($)
+  await clock.advance(60_000)
+  expect(await band($)).toEqual([])
+  await finish($, 'm1', 'They conflict.')
+  await $.classic.UserPromptSubmit({ prompt: '/boss tidy the readme' })
+  await begin($, 'm2', '/boss tidy the readme')
+  await read($)
+  await clock.advance(20_000)
+  expect(await band($)).toEqual([LINE('20s')])
+})
+
+test('L5: after a reload mid-turn (no turn start seen) the line stays away, whatever the band says', async ($, on) => {
+  const { clock } = boss(on)
+  // The engine's band still says it works (BAND's isWorking); the hook never saw this turn start.
+  await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
+  await read($)
+  await clock.advance(60_000)
+  expect(await band($)).toEqual([])
+  await begin($, 'm1', '/boss tidy the readme')
+  await read($)
+  await clock.advance(20_000)
+  expect(await band($)).toEqual([LINE('20s')])
+})
+
+// --- Codex: the card asks the companion itself whether a job is still going. ---
+
+const STATUS = (status: string) => JSON.stringify({ workspaceRoot: '/s', job: { id: 'x', status } }, null, 2)
+function companion(on: On, answer: (argv: readonly string[]) => unknown) {
+  const asked: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    asked.push(e.argv)
+    return answer(e.argv) as never
+  })
+  return asked
+}
+const launched = (id: string) => ({ result: { stdout: `Codex Task started in the background as ${id}. Check /codex:status ${id} for progress.`, stderr: '', interrupted: false } })
+
+test('C1: a Codex job leaves the card once its own status says it is done; a check that fails leaves it', async ($, on) => {
+  const { clock } = session(on, e => (e.tool === 'Bash' && / task /.test(e.command ?? '') ? launched('task-p-1') : { result: { stdout: 'ok', stderr: '', interrupted: false } }))
+  const answers: (() => unknown)[] = [
+    () => {
+      throw new Error('node is gone')
+    },
+    () => ({ value: { exitCode: 1, stdout: '', stderr: 'boom' } }),
+    () => ({ value: { exitCode: 0, stdout: 'not json', stderr: '' } }),
+    () => ({ value: { exitCode: 0, stdout: STATUS('running'), stderr: '' } }),
+    () => ({ value: { exitCode: 0, stdout: STATUS('completed'), stderr: '' } }),
+  ]
+  const asked = companion(on, () => (answers.shift() ?? (() => ({ value: { exitCode: 0, stdout: STATUS('running'), stderr: '' } })))())
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd "/s" "review the diff" --background` })
+  expect((await card($))?.alt).toContain('Codex working')
+  await clock.advance(29_000)
+  expect(asked).toEqual([])
+  for (let i = 0; i < 4; i += 1) {
+    await clock.advance(30_000)
+    expect((await card($))?.alt).toContain('Codex working')
+  }
+  expect(asked[0]).toEqual(['node', '/x/codex-companion.mjs', 'status', 'task-p-1', '--cwd', '/s', '--json'])
+  await clock.advance(30_000)
+  expect(await card($)).toBeNull()
+  // Nothing left to ask about: the checks stop.
+  const count = asked.length
+  await clock.advance(5 * 60_000)
+  expect(asked.length).toBe(count)
+})
+
+test('C1: failed, cancelled, unknown and "No job found" each end the job; a launch with no plain path or --cwd is never asked', async ($, on) => {
+  const { clock } = session(on, e => {
+    const id = / task /.test(e.command ?? '') ? /"(\w+)"/.exec(e.command ?? '')?.[1] : undefined
+    return id === undefined ? { result: { stdout: 'ok', stderr: '', interrupted: false } } : launched(id)
+  })
+  const asked = companion(on, argv => {
+    const id = argv[3] ?? ''
+    if (id === 'gone') return { value: { exitCode: 1, stdout: '', stderr: 'No job found for "gone". Run /codex:status to inspect known jobs.\n' } }
+    return { value: { exitCode: 0, stdout: STATUS(id), stderr: '' } }
+  })
+  for (const id of ['failed', 'cancelled', 'unknown', 'gone']) await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd /s "${id}" --background` })
+  // A path set in the same command is known; one from elsewhere, or no --cwd, is not.
+  await $.tool.call({ tool: 'Bash', command: 'C=/x/codex-companion.mjs; node "$C" task --cwd /s "completed" --background' })
+  await $.tool.call({ tool: 'Bash', command: 'node $C task --cwd /s "novar" --background' })
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task "nocwd" --background` })
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd "$DIR" "cwdvar" --background` })
+  expect(((await card($))?.alt ?? '').match(/Codex working/g)?.length).toBe(8)
+  await clock.advance(30_000)
+  expect(asked.map(argv => argv[3]).sort()).toEqual(['cancelled', 'completed', 'failed', 'gone', 'unknown'])
+  expect(asked.find(argv => argv[3] === 'completed')?.slice(0, 2)).toEqual(['node', '/x/codex-companion.mjs'])
+  expect(((await card($))?.alt ?? '').match(/Codex working/g)?.length).toBe(3)
+})
+
+test('C1: a status --json call boss runs ends the job when it shows a finished status', async ($, on) => {
+  const out: Record<string, string> = { 'task-s-1': STATUS('running'), 'task-s-2': STATUS('completed') }
+  session(on, e => {
+    const command = e.command ?? ''
+    if (/ task /.test(command)) return launched(/"(task-s-\d)"/.exec(command)?.[1] ?? '')
+    const id = / status (task-s-\d)/.exec(command)?.[1]
+    return { result: { stdout: id === undefined ? 'ok' : (out[id] ?? ''), stderr: '', interrupted: false } }
+  })
+  companion(on, () => ({ value: { exitCode: 0, stdout: STATUS('running'), stderr: '' } }))
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd /s "task-s-1" --background` })
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} task --cwd /s "task-s-2" --background` })
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} status task-s-1 --cwd /s --json` })
+  expect(((await card($))?.alt ?? '').match(/Codex working/g)?.length).toBe(2)
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} status task-s-2 --cwd /s --json` })
+  expect(((await card($))?.alt ?? '').match(/Codex working/g)?.length).toBe(1)
+  // Harvesting the job the check already ended leaves the other one on the card.
+  await $.tool.call({ tool: 'Bash', command: `${COMPANION} result task-s-2 --cwd /s` })
+  expect(((await card($))?.alt ?? '').match(/Codex working/g)?.length).toBe(1)
+})

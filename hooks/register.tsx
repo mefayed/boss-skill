@@ -13,7 +13,7 @@ import { redact } from './redact'
 const live = atom(
   { plugin: 'boss', key: 'live' } as const,
   { jobs: {}, agents: {}, run: null, proof: null, finished: null, isWaiting: false, inPicker: false, waitingSince: null, questions: [], hadRun: false, task: null },
-  { shape: 'live-6' },
+  { shape: 'live-7' },
 )
 const isHidden = atom({ plugin: 'boss', key: 'isHidden' } as const, false)
 const learn = atom({ plugin: 'boss', key: 'learn' } as const, { isBoss: false, asked: false, wroteMemory: false, blocked: false }, { shape: 'learn-1' })
@@ -62,6 +62,39 @@ const MOOD: Record<string, string> = {
 }
 // The redraw timer; the module's own, so it starts over on a reload.
 let ticker: { cancel: () => void } | null = null
+// The working line's own clock, only while it shows, and the Codex status check, only while a job can be asked.
+let lineTicker: { cancel: () => void } | null = null
+let codexPoll: { cancel: () => void } | null = null
+const LINE_MS = 20_000
+const POLL_MS = 30_000
+// What the companion's status says of a job: over once it ended, or when it knows no such job.
+const OVER = ['completed', 'failed', 'cancelled', 'unknown']
+function codexOver(stdout: string, stderr = ''): boolean {
+  if (/No job found/.test(`${stdout}\n${stderr}`)) return true
+  // `--json` prints the snapshot; boss's waiter echoes `status=<word>`.
+  let status: unknown = /^status=(\w+)/m.exec(stdout)?.[1]
+  try {
+    const parsed = JSON.parse(stdout) as { job?: { status?: unknown }; status?: unknown }
+    status = parsed.job?.status ?? parsed.status
+  } catch {
+    // Not JSON: the waiter's line, or nothing.
+  }
+  return typeof status === 'string' && OVER.includes(status)
+}
+// The companion's script and --cwd as the launch wrote them; null when either is not a plain absolute path
+// (a variable, `~`), since the check runs with no shell and a wrong --cwd reads "No job found".
+function codexLaunch(command: string): { script: string; cwd: string } | null {
+  const word = (m: RegExpExecArray | null) => m?.[1] ?? m?.[2] ?? m?.[3]
+  // Also through a variable set in the same command: `C=/x/codex-companion.mjs; node $C task …`.
+  const script = word(/(?:^|[\s;&|(])(?:\w+=)?(?:"([^"]*codex-companion\.mjs)"|'([^']*codex-companion\.mjs)'|([^\s"';&|]*codex-companion\.mjs))/.exec(command))
+  const cwd = word(/--cwd[=\s]+(?:"([^"]*)"|'([^']*)'|([^\s;&|]+))/.exec(command))
+  const plain = (path: string | undefined): path is string => path !== undefined && path.startsWith('/') && !/[$`]/.test(path)
+  return plain(script) && plain(cwd) ? { script, cwd } : null
+}
+// Seconds as "20s" or "1m 20s": the working line moves each second.
+function took(seconds: number): string {
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
 // Tool-call times per boss agent, for the quiet-agent toast. Kept out of state: it
 // changes on every call and means nothing after a reload.
 const beats = new Map<string, number[]>()
@@ -111,7 +144,8 @@ let seq = 0
 let mainTurnSeq = 0
 let personSeq = 0
 // The main loop's turn as its start and end report it; null after a reload, when the band's isWorking stands in.
-let mainTurn: { id: string; running: boolean } | null = null
+// `at`: when it started; `hasCall`: it made a tool call in a boss session (the working line waits for one).
+let mainTurn: { id: string; running: boolean; at: number; hasCall: boolean } | null = null
 // What the person typed over a running main turn, by that turn's id, until the next main turn starts.
 const typedOver = new Map<string, string>()
 // The person's last message and the judge's word on it, asked at most once a turn: a
@@ -463,6 +497,29 @@ async function endJob($: $, id: string | undefined, report = '', how: { stopped?
   if (day !== null) await addToDay($, now, day).catch(() => undefined)
 }
 
+// While a Codex job the card can ask about is live, its status is checked every 30 s: a check
+// that cannot run leaves the job as it is, and the 45-minute limit still stands.
+function armPoll($: $) {
+  if (codexPoll === null) codexPoll = $.clock.every(POLL_MS, () => void pollCodex($).catch(() => undefined))
+}
+async function pollCodex($: $) {
+  const asked = Object.entries((await read($, live)).jobs).filter(([, job]) => job.codex !== undefined)
+  if (asked.length === 0) {
+    codexPoll?.cancel()
+    codexPoll = null
+  }
+  for (const [id, { codex }] of asked) {
+    if (codex === undefined) continue
+    try {
+      const ran = await $.process.run(['node', codex.script, 'status', id, '--cwd', codex.cwd, '--json'], { timeoutMs: 15_000 })
+      // Only a job still on the card ends: a harvest may have come first.
+      if (codexOver(ran.stdout, ran.stderr)) await endJob($, id, '', { timer: true })
+    } catch {
+      // The check did not run: the job stays.
+    }
+  }
+}
+
 function proofState(proof: BossLiveProof): { icon: string; word: string; color: string } {
   if (proof.verdict === 'PASS') return { icon: '✓', word: 'passed', color: 'success' }
   if (proof.verdict === 'FAIL') return { icon: '✗', word: 'failed', color: 'error' }
@@ -588,13 +645,16 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     }
     return ran
   }
-  const known = Object.entries((await read($, live)).jobs).filter(([, job]) => job.lane === 'codex')
+  const state = await read($, live)
+  const known = Object.entries(state.jobs).filter(([, job]) => job.lane === 'codex')
   // A harvest or cancel that names a job id ends that job.
   const named = /\b(result|cancel)\b/.test(command) ? known.find(([id]) => command.includes(id)) : undefined
+  // One that names a job already off the card (its status said done) ends no other.
+  const isGone = Object.entries(state.agents).some(([id, job]) => job.lane === 'codex' && state.jobs[id] === undefined && command.includes(id))
   const codex = CODEX.exec(command)
   const verb = codex?.[1] ?? ''
   if (named !== undefined) await endJob($, named[0])
-  else if (codex !== null && !START.has(verb)) {
+  else if (codex !== null && !START.has(verb) && !isGone) {
     // shortcut: a harvest or cancel with no job id ends the oldest Codex job.
     await endJob($, known.sort(([, a], [, b]) => a.startedAt - b.startedAt)[0]?.[0])
   }
@@ -627,8 +687,19 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     if (!isTask || !(await renameJob($, e.tool_use_id, later))) await job(later)
     // A job never harvested still leaves the card (the longest Codex run boss waits for).
     $.clock.after(45 * 60_000, () => void endJob($, later, '', { timer: true }))
+    // Known by its Codex id, the job can be asked how it goes.
+    const launch = later === started ? codexLaunch(command) : null
+    if (launch !== null) {
+      await update($, live, s => (s.jobs[later] === undefined ? s : { ...s, jobs: { ...s.jobs, [later]: { ...s.jobs[later], codex: launch } } }))
+      armPoll($)
+    }
   } else if (isTask) {
     await endJob($, e.tool_use_id)
+  }
+  // A status check boss ran itself (`status <id> --json`) that shows the job over ends it.
+  const checked = /\bstatus\b/.test(command) && /\s--json\b/.test(command) ? known.find(([id]) => command.includes(id)) : undefined
+  if (checked !== undefined && ran.deny === undefined && typeof stdout === 'string' && codexOver(stdout, typeof output?.stderr === 'string' ? output.stderr : '')) {
+    await endJob($, checked[0], '', { timer: true })
   }
 
   return ran
@@ -696,6 +767,7 @@ export const register: Register = on => {
     for (const [id, job] of Object.entries((await read($, live)).jobs)) {
       if (job.lane === 'codex') $.clock.after(Math.max(0, job.startedAt + 45 * 60_000 - now), () => void endJob($, id, '', { timer: true }))
       else if (id.startsWith('bg:')) $.clock.after(Math.max(0, job.startedAt + 600_000 - now), () => void endJob($, id, '', { timer: true }))
+      if (job.codex !== undefined) armPoll($)
     }
     return next(e)
   })
@@ -778,7 +850,7 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       mainTurnSeq = ++seq
-      mainTurn = { id: e.turnId, running: true }
+      mainTurn = { id: e.turnId, running: true, at: await $.clock.now(), hasCall: false }
       // A turn with words of its own starts the reply checks over; a continuation does not.
       if (e.text !== '') await update($, learn, s => ({ ...s, asked: false, wroteMemory: false, blocked: false }))
       // A message typed over the last turn, now run as this one, answers the wait.
@@ -820,7 +892,9 @@ export const register: Register = on => {
       await endJob($, e.agentId, e.answer, { stopped: e.reason !== 'answer' })
     } else {
       // Aborted or answered, the main turn is over: the card stops looking busy.
-      mainTurn = { id: e.turnId, running: false }
+      mainTurn = { id: e.turnId, running: false, at: mainTurn?.at ?? 0, hasCall: false }
+      lineTicker?.cancel()
+      lineTicker = null
       $.ui.invalidate('ui.render')
     }
     if (e.agentId === undefined && QUESTION.test(withoutCode(e.answer)) && !(mainTurnSeq > 0 && personSeq > mainTurnSeq)) {
@@ -933,6 +1007,13 @@ export const register: Register = on => {
     if (agentId !== undefined) inFlight.set(agentId, (inFlight.get(agentId) ?? 0) + 1)
     try {
       if (e.agentId === undefined && e.tool === 'Skill' && /^(boss:)?boss$/.test(e.skill)) await update($, learn, s => ({ ...s, isBoss: true }))
+      // A boss turn's first call starts the 20 s wait for the working line; the timer checks it is still that turn.
+      if (e.agentId === undefined && mainTurn?.running === true && !mainTurn.hasCall && (await read($, learn)).isBoss) {
+        const turn = (mainTurn = { ...mainTurn, hasCall: true })
+        $.clock.after(Math.max(0, turn.at + LINE_MS - (await $.clock.now())), () => {
+          if (mainTurn?.id === turn.id && mainTurn.running) $.ui.invalidate('ui.render')
+        })
+      }
       const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
       const at = path === undefined ? null : await places($)
       const target = path === undefined ? null : clean(path)
@@ -994,6 +1075,8 @@ export const register: Register = on => {
     if (await read($, isHidden)) {
       ticker?.cancel()
       ticker = null
+      lineTicker?.cancel()
+      lineTicker = null
       return next(e)
     }
     // The main turn as its events report it; after a reload, the band's own word.
@@ -1012,12 +1095,30 @@ export const register: Register = on => {
       ticker.cancel()
       ticker = null
     }
-    if (e.props.hasSurvey || (jobs.length === 0 && !s.isWaiting && s.proof === null)) {
-      return next(e)
+    const now = await $.clock.now()
+    // Nothing for the card, and boss on a boss turn of its own for 20 s with a call made: one line,
+    // its own clock each second. Seen only from this turn's start, so never after a reload.
+    const turn = mainTurn
+    const isEmpty = jobs.length === 0 && !s.isWaiting && s.proof === null
+    const working = !e.props.hasSurvey && isEmpty && turn?.running === true && turn.hasCall && now - turn.at >= LINE_MS ? turn : null
+    if (working === null) {
+      lineTicker?.cancel()
+      lineTicker = null
+    } else if (lineTicker === null) {
+      const tick = $.clock.every(1000, () => {
+        if (mainTurn?.id === working.id && mainTurn.running) return $.ui.invalidate('ui.render')
+        tick.cancel()
+        if (lineTicker === tick) lineTicker = null
+      })
+      lineTicker = tick
+    }
+    if (e.props.hasSurvey || isEmpty) {
+      if (working === null) return next(e)
+      const { Text } = $.ui.resolve(e)
+      return <Text dimColor wrap="truncate-end">{`boss · working on your task · ${took(Math.floor((now - working.at) / 1000))}`}</Text>
     }
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const now = await $.clock.now()
     // Boss's turn ended with the team done and no verdict: drawn as not checked, never stored,
     // so an inspector that comes later still joins this run.
     const overlay: BossLiveProof | null =

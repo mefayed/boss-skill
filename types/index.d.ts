@@ -22,6 +22,8 @@ export type BossLiveJob = {
   repos?: string[]
   // Its last run ended without an answer (interrupted, refused, an API error).
   stopped?: true
+  // A Codex job's companion script and --cwd, from its launch: how the card asks its status.
+  codex?: { script: string; cwd: string }
 }
 
 export type BossLiveResult = 'PASS' | 'FAIL' | 'NOT CHECKED'
