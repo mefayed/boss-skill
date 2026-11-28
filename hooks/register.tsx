@@ -67,6 +67,17 @@ let ticker: { cancel: () => void } | null = null
 const beats = new Map<string, number[]>()
 const BUCKET = 5000
 
+// Haiku, given only the person's words and the kinds hidden, never a secret or a report.
+// Unsure, failed or slow: hide.
+async function judge($: $, text: string, kinds: string[]): Promise<boolean> {
+  try {
+    const r = await $.model.complete({ model: 'haiku', system: JUDGE, prompt: `Message: ${text}\nHidden: ${kinds.join(', ')}`, maxTokens: 5, timeoutMs: 5000 })
+    return r.isAnswered && /^SHOW\.?$/i.test(r.text.trim())
+  } catch {
+    return false
+  }
+}
+
 // Whole minutes, so a running clock changes the card once a minute, not every second.
 function minutes(seconds: number): string {
   return seconds < 60 ? '<1m' : `${Math.floor(seconds / 60)}m`
@@ -103,6 +114,13 @@ let personSeq = 0
 let mainTurn: { id: string; running: boolean } | null = null
 // What the person typed over a running main turn, by that turn's id, until the next main turn starts.
 const typedOver = new Map<string, string>()
+// The person's last message and the judge's word on it, asked at most once a turn: a
+// report's secret shows only when their own words ask for it. Secrets live in memory only.
+let asked: { text: string; shows?: Promise<boolean> } | null = null
+// What was hidden since, by value, until "show it" or two more messages of the person's.
+let hidden: { secrets: Map<string, string>; turns: number } | null = null
+const JUDGE = 'Read the message a person typed. Answer SHOW only if it clearly asks to see the value of a secret of the kind named, else HIDE. One word.'
+const REVEAL = /^\s*(?:show(?: me)?(?: it| them| the \w+(?: \w+)?)?|unhide(?: it| them)?)[\s.!]*$/i
 // Tool calls still running per boss agent: one long call is not a quiet agent.
 const inFlight = new Map<string, number>()
 // The run the day already counted, and whether it counted its pass: a verdict that changes counts once.
@@ -741,7 +759,19 @@ export const register: Register = on => {
   // Every agent's report, foreground, background or resumed, in any session: secrets leak in all of them.
   on('agent.report', async ($, e, next) => {
     const ran = await next(e)
-    return ran.consumed === undefined ? { ...ran, text: redact(ran.text) } : ran
+    if (ran.consumed !== undefined) return ran
+    const found: { kind: string; value: string }[] = []
+    const text = redact(ran.text, found)
+    // No message of the person's yet (or a reload since): nothing to judge, nothing to ask back.
+    if (found.length === 0 || asked === null) return { ...ran, text }
+    const kinds = [...new Set(found.map(secret => secret.kind))]
+    asked.shows ??= judge($, asked.text, kinds)
+    if (await asked.shows) return ran
+    hidden ??= { secrets: new Map(), turns: 0 }
+    for (const secret of found) hidden.secrets.set(secret.value, secret.kind)
+    hidden.turns = 0
+    const one = found.length === 1
+    return { ...ran, text: `${text}\n\n(boss: hid ${found.length} secret${one ? '' : 's'} (${kinds.join(', ')}); say "show it" to see ${one ? 'it' : 'them'})` }
   })
 
   // The main turn runs; a boss agent woken again (the inspector's second phase) runs once more.
@@ -817,6 +847,12 @@ export const register: Register = on => {
     if (MACHINE.includes(e.origin.kind) || e.isMeta === true) return next(e)
     // A plugin's prompt (this card's Go, Go cheaper) did its own bookkeeping.
     if (e.origin.kind === 'plugin') return next(e)
+    asked = { text: e.text }
+    if (hidden !== null && REVEAL.test(e.text)) {
+      const lines = [...hidden.secrets].map(([value, kind]) => `- ${kind}: ${value}`)
+      hidden = null
+      e = { ...e, text: `${e.text}\n\n(boss: the secrets hidden from agent reports, as you asked)\n${lines.join('\n')}` }
+    } else if (hidden !== null && ++hidden.turns >= 2) hidden = null
     // Typed over a running turn: it answers a wait but starts no new ask.
     if (e.turnId !== undefined) {
       typedOver.set(e.turnId, e.text)
