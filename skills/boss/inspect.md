@@ -75,6 +75,6 @@ Never add a GOAL, a paraphrase, the builder's report, your review notes, your th
 - Security or CVE work: `attack: <command> → refused in this test (seen succeeding before the fix) — candidate fix — needs expert review`; never seen succeeding before → `unproven`, never "fixed".
 
 ## Limits
-- No hook guards the inspector (the plugin ships none), so nothing stops a push, commit or reset by it.
-- What holds it in place: a closed tools list, its rules, and the run baseline, which catches commits, branches, stashes, and pushes that update a tracking ref.
+- Where boss's hooks run, they refuse the inspector's writes outside SCRATCH, and its commits, pushes and resets, as far as they can read a command; the hookless directory build has none of this.
+- What else holds it in place: a closed tools list, its rules, and the run baseline, which catches commits, branches, stashes, and pushes that update a tracking ref.
 - What that baseline cannot see: gitignored files, databases, processes, a push to a remote without a tracking ref, and other external state. That is why writes go to SCRATCH or to processes the inspector started.

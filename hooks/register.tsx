@@ -4,8 +4,9 @@ import type { EngineInterface, Hook, Register } from 'claude-code'
 import type { BossLiveJob, BossLiveLane, BossLiveProof, BossLiveResult, BossLiveState } from '../types'
 import { outsideRun, readContract, readInspection, readQuestions, readStatus, short } from './boss-text'
 import { CARD_HEIGHT, cardSvg, type CardKind, type CardModel } from './card'
-import { bashRule, clean, inRoots, inScratch, within, type Roots } from './guard'
+import { bashRule, clean, inRoots, inScratch, scratchRoot, within, type Roots } from './guard'
 import { hasRepo, isLessonFile, NEED_REPO, NUDGE, REWRITE, overBudget, places, recall, repoLines, replyProblem, resultText, withLessons, withoutCode } from './learn'
+import { redact } from './redact'
 
 // Change the tag when the state's fields change: it declines what an earlier
 // version stored, which outlives a reload.
@@ -238,11 +239,17 @@ function shortModel(model: string | undefined): string {
 
 const isBuilder = (lane: BossLiveLane) => lane === 'builder' || lane === 'builder-deep'
 
+// The session's scratch root: its scratchpad, else its claude-N TMPDIR (null: neither).
+async function scratchOf($: $): Promise<string | null> {
+  const dir = (await $.session.info().catch(() => null))?.scratchpadDir
+  return scratchRoot(dir, await $.env.get('TMPDIR').catch(() => undefined))
+}
+
 // Where a builder may write. shortcut: no session folder (tests, odd hosts) leaves writes unchecked.
 async function writeRoots($: $, agentId?: string): Promise<Roots | null> {
   try {
     const cwd = await $.session.cwd()
-    const scratch = (await $.session.info().catch(() => null))?.scratchpadDir ?? null
+    const scratch = await scratchOf($)
     const repos = agentId === undefined ? [] : ((await read($, live)).agents[agentId]?.repos ?? [])
     return { cwd, repos, scratch }
   } catch {
@@ -490,7 +497,7 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     const roots = lane !== undefined && isBuilder(lane) ? await writeRoots($, e.agentId) : null
     const path = EDITS.includes(String(e.tool)) ? pathOf(e) : undefined
     // Every lane's scratchpad is this session's own; none known, any /tmp/claude-N folder.
-    const scratch = roots?.scratch ?? (await $.session.info().catch(() => null))?.scratchpadDir ?? null
+    const scratch = roots !== null ? roots.scratch : await scratchOf($)
     const home = (await $.env.get('HOME').catch(() => undefined)) ?? null
     let what: string | null = null
     if (e.tool === 'Bash') what = bashRule(e.command, rules.isReadOnly, roots, { scratch, home })
@@ -499,7 +506,8 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
     else if (roots !== null && path !== undefined && !inRoots(path, roots)) what = 'write files outside REPO and the scratchpad'
     // A refusal that says what to do instead comes whole.
     if (what?.startsWith('boss-live: ')) return { deny: what }
-    if (what !== null) return { deny: `boss-live: ${rules.who} may not ${what} — report it under OPEN instead` }
+    const where = scratch !== null && what?.endsWith('outside the scratchpad') ? ` (${scratch})` : ''
+    if (what !== null) return { deny: `boss-live: ${rules.who} may not ${what}${where} — report it under OPEN instead` }
   }
   // Right now, in fixed phrases: what kind of work, never what it touched. An edit counts once it ran.
   const isTest = lane !== undefined && e.tool === 'Bash' && TESTS.test(e.command)
@@ -612,7 +620,7 @@ const bossCall: Hook<'tool.call'> = async ($, e, next) => {
 // after a FAIL it lets another inspector's pass replace it; a builder's after a PASS makes it stale.
 async function countEdit($: $, path: string, agentId: string | undefined) {
   const lane = agentId === undefined ? undefined : await agentLane($, agentId)
-  if ((agentId !== undefined && (lane === undefined || !isBuilder(lane))) || inScratch(path)) return
+  if ((agentId !== undefined && (lane === undefined || !isBuilder(lane))) || inScratch(path, null, await scratchOf($))) return
   const s = await read($, live)
   const root = await $.session.root().catch(() => null)
   const roots = [root, ...Object.values(s.agents).flatMap(job => job.repos ?? [])].filter((one): one is string => typeof one === 'string')
@@ -728,6 +736,12 @@ export const register: Register = on => {
     }
 
     return ran
+  })
+
+  // Every agent's report, foreground, background or resumed, in any session: secrets leak in all of them.
+  on('agent.report', async ($, e, next) => {
+    const ran = await next(e)
+    return ran.consumed === undefined ? { ...ran, text: redact(ran.text) } : ran
   })
 
   // The main turn runs; a boss agent woken again (the inspector's second phase) runs once more.

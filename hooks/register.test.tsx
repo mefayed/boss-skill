@@ -2353,6 +2353,18 @@ test('edits: after a FAIL, boss writing in the scratchpad does not let another i
   expect(tone((await card($))?.source)).toBe('failed')
 })
 
+test('edits: with no scratchpad known, boss writing in its claude-N TMPDIR inside the project does not let another inspector pass it', async ($, on) => {
+  session(on)
+  mock.env(on, { HOME: '/home/me', TMPDIR: '/private/tmp/e-abc/tmp/claude-501/' })
+  on('session.root', () => ({ value: '/private/tmp/e-abc' }))
+  await begin($, 'm1')
+  await built($)
+  await inspected($, 'A', FAILED)
+  await $.tool.call({ tool: 'Write', file_path: '/private/tmp/e-abc/tmp/claude-501/run.md', content: 'x' })
+  await inspected($, 'B', PASSED)
+  expect(tone((await card($))?.source)).toBe('failed')
+})
+
 test('edits: a lesson write neither stales a pass nor lets a pass replace a failure', async ($, on) => {
   boss(on)
   await $.tool.call({ tool: 'Skill', skill: 'boss:boss' })
@@ -2563,6 +2575,74 @@ test('E1: with no scratchpad known, a read-only lane may write in any claude-N s
   expect(await bash($, 'echo x > /private/tmp/other/r.txt', i)).toContain('outside the scratchpad')
 })
 
+// A session that may know no scratchpad (as in `claude plugin eval` children), with its own temp folder in TMPDIR.
+const TMP = '/private/tmp/e-abc/tmp/claude-501'
+function temp(on: On, tmpdir: string, scratchpadDir?: string) {
+  engine(on)
+  mock.env(on, { HOME: '/home/me', TMPDIR: tmpdir })
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('session.info', () => ({ value: scratchpadDir === undefined ? { transcriptPath: '' } : { transcriptPath: '', scratchpadDir } }))
+}
+
+test('E1: with no scratchpad known, a read-only lane writes strictly inside its own claude-N TMPDIR', async ($, on) => {
+  temp(on, `${TMP}/`)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const run = (command: string) => bash($, command, i)
+  const write = async (file_path: string) => (await $.tool.call({ tool: 'Write', file_path, content: 'x', agentId: i })).deny
+
+  expect(await run(`mkdir -p ${TMP}/inspect-1 && cp -R /repo/x ${TMP}/inspect-1/c`)).toBeUndefined()
+  expect(await run(`rm -r ${TMP}/inspect-1/c`)).toBeUndefined()
+  expect(await run('mkdir -p "$TMPDIR/inspect-1"')).toBeUndefined()
+  expect(await run('mkdir -p ${TMPDIR}/inspect-1')).toBeUndefined()
+  expect(await write(`${TMP}/inspect-1/notes.md`)).toBeUndefined()
+
+  expect(await run(`rm -r ${TMP}`)).toContain('rm -r outside the scratchpad')
+  expect(await run('rm -r "$TMPDIR"')).toContain('rm -r outside the scratchpad')
+  expect(await run('echo x > /private/tmp/e-abc/tmp/x')).toContain('write files outside the scratchpad')
+  expect(await run('echo x > /Users/x/tmp/claude-1/f')).toContain('write files outside the scratchpad')
+  expect(await run('echo x > /repo/f.ts')).toBe(`boss-live: inspectors may not write files outside the scratchpad (${TMP}) — report it under OPEN instead`)
+  expect(await write('/repo/f.ts')).toBe(`boss-live: inspectors may not write files outside the scratchpad (${TMP}) — report it under OPEN instead`)
+
+  for (const command of ['mkdir -p $OTHER/x', 'mkdir -p $TMPDIRX/x', 'mkdir -p "$(mktemp -d)/x"']) expect(await run(command)).toContain(LITERAL)
+  expect(await run('TMPDIR=/repo; mkdir -p $TMPDIR/x')).toContain('write files outside the scratchpad')
+})
+
+test('E1: with no scratchpad known and a TMPDIR not named claude-N, a read-only lane writes strictly inside a claude-N folder in it or in /tmp', async ($, on) => {
+  temp(on, '/private/tmp/e-abc/tmp')
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const run = (command: string) => bash($, command, i)
+  const write = async (file_path: string) => (await $.tool.call({ tool: 'Write', file_path, content: 'x', agentId: i })).deny
+
+  expect(await run(`mkdir -p ${TMP}/inspect-1/c1 && cp -R /repo/x ${TMP}/inspect-1/c1`)).toBeUndefined()
+  expect(await write(`${TMP}/inspect-1/x`)).toBeUndefined()
+  expect(await run('echo x > /private/tmp/claude-777/s/r.txt')).toBeUndefined()
+
+  expect(await write('/private/tmp/e-abc/tmp/x')).toBe('boss-live: inspectors may not write files outside the scratchpad (/private/tmp/e-abc/tmp/claude-*) — report it under OPEN instead')
+  expect(await run(`rm -r ${TMP}`)).toContain('rm -r outside the scratchpad')
+  expect(await run('touch /private/tmp/e-abc/tmp/claude-x/y')).toContain('write files outside the scratchpad')
+  expect(await run('echo x > /private/tmp/e-abc/tmp/x')).toContain('write files outside the scratchpad')
+  expect(await run('mkdir -p "$TMPDIR/claude-501/x"')).toContain(LITERAL)
+})
+
+test('E1: with no scratchpad known, a TMPDIR not named claude-N widens nothing outside its own claude-N folders', async ($, on) => {
+  temp(on, '/var/folders/ab/T/')
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  expect(await bash($, 'echo x > /private/tmp/claude-777/s/r.txt', i)).toBeUndefined()
+  expect(await bash($, 'echo x > /var/folders/ab/T/claude-501/r.txt', i)).toBeUndefined()
+  expect(await bash($, 'echo x > /var/folders/ab/T/r.txt', i)).toContain('write files outside the scratchpad')
+  expect(await bash($, 'mkdir -p "$TMPDIR/x"', i)).toContain(LITERAL)
+})
+
+test('E1: a known scratchpad is the only root, even with a claude-N TMPDIR', async ($, on) => {
+  temp(on, `${TMP}/`, S2)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const write = async (file_path: string) => (await $.tool.call({ tool: 'Write', file_path, content: 'x', agentId: i })).deny
+  expect(await bash($, `echo x > ${S2}/r.txt`, i)).toBeUndefined()
+  expect(await bash($, `echo x > ${TMP}/inspect-1/r.txt`, i)).toContain(`write files outside the scratchpad (${S2})`)
+  expect(await write(`${TMP}/inspect-1/r.txt`)).toContain(`write files outside the scratchpad (${S2})`)
+  expect(await bash($, 'mkdir -p "$TMPDIR/x"', i)).toContain(LITERAL)
+})
+
 test('E2: a read-only lane edits, installs, applies and clones only inside its scratchpad', async ($, on) => {
   desk(on)
   const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
@@ -2583,6 +2663,40 @@ test('E2: a read-only lane edits, installs, applies and clones only inside its s
   expect(await run(`cd ${S2} && git clone https://x.test/r.git r2`)).toBeUndefined()
   expect(await run(`cd ${S2} && git clone https://x.test/r.git /repo/r2`)).toContain('git clone')
   expect(await run('git apply p.diff')).toContain('git apply')
+})
+
+test('E2: a read-only lane clones into a scratchpad folder from any folder, never elsewhere or with options that run code', async ($, on) => {
+  desk(on)
+  const i = await spawn($, 'inspector', 'Test the fix', 'haiku')
+  const run = (command: string) => bash($, command, i)
+  const url = 'https://github.com/x/y'
+
+  expect(await run(`D=${S2}/bh; mkdir -p $D && git clone --depth 1 ${url} $D/repo 2>&1 | tail -2`)).toBeUndefined()
+  expect(await run(`D=${S2}/bh; git clone --depth 1 ${url} $D/repo`)).toBeUndefined()
+  expect(await run(`git clone --depth 1 ${url} ${S2}/bh/repo`)).toBeUndefined()
+  expect(await run(`git clone --depth 1 ${url} ${S2}/bh/repo 2>&1 | tail -2`)).toBeUndefined()
+  expect(await run(`cd /x/DC\\ Home && git clone -b main --depth=1 ${url} ${S2}/bh/repo`)).toBeUndefined()
+
+  expect(await run(`git clone ${url}`)).toContain('git clone outside the scratchpad')
+  expect(await run(`cd /x/DC\\ Home && git clone --depth 1 ${url}`)).toContain('git clone outside the scratchpad')
+  expect(await run(`git clone ${url} /Users/x/out`)).toContain('git clone outside the scratchpad')
+  expect(await run(`cd /x/DC\\ Home && git clone ${url} ../out`)).toContain('git clone outside the scratchpad')
+  expect(await run(`cd ${S2} && git clone ${url} /repo/r2 --depth 1`)).toContain('git clone outside the scratchpad')
+  expect(await run(`cd ${S2} && git clone ${url} /repo/r2 -b main`)).toContain('git clone outside the scratchpad')
+
+  for (const option of ['-u x', '-ux', '--upload-pack=x', '--upload-pack x', '--template=/t', '--template /t', '-c core.sshCommand=x', '--config core.sshCommand=x', '--config=core.sshCommand=x']) {
+    expect(await run(`git clone ${option} ${url} ${S2}/bh/repo`)).toContain('options that run code')
+    expect(await run(`cd ${S2} && git clone ${option} ${url} r`)).toContain('options that run code')
+  }
+  expect(await run(`git -c core.sshCommand=x clone ${url} ${S2}/bh/repo`)).toContain('options that run code')
+  expect(await run(`GIT_SSH_COMMAND="touch /tmp/p" git clone git@x:y ${S2}/bh/repo`)).toContain('git variables that run code')
+  expect(await run(`GIT_TEMPLATE_DIR=/t git clone ${url} ${S2}/bh/repo`)).toContain('git variables that run code')
+  expect(await run(`env GIT_CONFIG_COUNT=1 git clone ${url} ${S2}/bh/repo`)).toContain('git variables that run code')
+  expect(await run(`git --exec-path=/t clone ${url} ${S2}/bh/repo`)).toContain('options that run code')
+  expect(await run(`git clone --separate-git-dir /repo/g ${url} ${S2}/bh/repo`)).toContain('may not')
+  expect(await run(`export GIT_SSH_COMMAND="touch /tmp/p"; git clone git@x:y ${S2}/bh/repo`)).toContain('git variables that run code')
+  expect(await run(`export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand`)).toContain('git variables that run code')
+  expect(await run(`export GIT_PAGER=cat; git log -1`)).toBeUndefined()
 })
 
 test('E2: a read-only lane may not point git at another folder; git stash list and show still read', async ($, on) => {
@@ -2721,4 +2835,72 @@ test('C6: a model run is a job only when it runs; reading, testing or searching 
   expect(outsideRun('timeout 60 python3 ask_ollama.py brief.txt')).toEqual({ lane: 'local', model: 'ollama', script: 'ask_ollama.py' })
   expect(outsideRun('nohup bash /s/run_ollama.sh &')).toEqual({ lane: 'local', model: 'ollama', script: '/s/run_ollama.sh' })
   expect(outsideRun('cd /s && exec node ./ask-ollama.mjs b.md')).toEqual({ lane: 'local', model: 'ollama', script: './ask-ollama.mjs' })
+})
+
+// The engine beneath the hooks delivers the report as it was passed.
+function delivers(on: On) {
+  on('agent.report', (_, e) => ({ text: e.text }))
+}
+async function report($: Engine, agentId: string, subagentType: string, text: string) {
+  const ran = await $.agent.report({ agentId, subagentType, provider: { plugin: 'boss', tier: 'user' }, status: 'completed', text })
+  return ran.text
+}
+// Built at run time, so no scanner takes the fixtures for live keys.
+const KEY = (n: number) => 'Ab3x9Kq7Zr'.repeat(10).slice(0, n)
+
+test('R1: a report reaches the main session with each secret masked and the rest kept', async ($, on) => {
+  engine(on)
+  delivers(on)
+  const masked = (text: string) => report($, 'x-id', 'Explore', text)
+  const cases: [string, string][] = [
+    [`key sk-ant-api03-${KEY(40)} in .env`, 'key *** in .env'],
+    [`openai sk-${KEY(32)} done`, 'openai *** done'],
+    [`ghp_${KEY(36)}, gho_${KEY(36)}, ghs_${KEY(36)}`, '***, ***, ***'],
+    [`github_pat_${KEY(22)}_${KEY(59)} leaked`, '*** leaked'],
+    [`aws AKIAQWERTY23456789AB here`, 'aws *** here'],
+    [`slack xoxb-123456789012-${KEY(24)} and xoxp-123456789012-${KEY(24)}`, 'slack *** and ***'],
+    [`curl -H "Authorization: Bearer ${KEY(40)}" https://x.test`, 'curl -H "Authorization: Bearer ***" https://x.test'],
+    [`before\n-----BEGIN RSA PRIVATE KEY-----\n${KEY(64)}\n${KEY(20)}==\n-----END RSA PRIVATE KEY-----\nafter`, 'before\n***\nafter'],
+    [`-----BEGIN OPENSSH PRIVATE KEY-----\n${KEY(70)}\n-----END OPENSSH PRIVATE KEY-----`, '***'],
+    ['git clone https://bob:hunter2pass@github.com/x/y.git', 'git clone https://bob:***@github.com/x/y.git'],
+    ['password=hunter2hunter2 next', 'password=*** next'],
+    ['api_key: abcdefgh12', 'api_key: ***'],
+    ['token=abcd1234efgh&x=1', 'token=***&x=1'],
+    ['{"password": "s3cretpass"}', '{"password": "***"}'],
+    ['export DB_PASSWORD=correcthorse', 'export DB_PASSWORD=***'],
+  ]
+  for (const [text, want] of cases) expect(await masked(text)).toBe(want)
+})
+
+test('R2: what only looks like a secret reaches the main session unchanged', async ($, on) => {
+  engine(on)
+  delivers(on)
+  const kept = [
+    'commit 4f2a9c1e8b7d6a5f4e3c2b1a0f9e8d7c6b5a4f3e and short a1b2c3d4e5f6',
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  hooks/register.tsx',
+    'run 123e4567-e89b-12d3-a456-426614174000 passed',
+    '(pass) dGhpcyBpcyBhIGxvbmcgdGVzdCBuYW1lIGluIGJhc2U2NA== [2ms]',
+    '/Users/x/work/hooks/register.test.tsx and src/sk-utils/index.ts',
+    'task-runner-with-a-very-long-name-for-these-tests and whisk-it',
+    'already masked: *** and password=*** and password= and token=',
+    'Authorization: Bearer $TOKEN, token=${API_KEY}, api_key: $OPENAI_API_KEY',
+    'https://user:$PASS@host.test/x and https://host.test/a:b@c',
+    'max_tokens: 4096 and password: short',
+  ]
+  for (const text of kept) expect(await report($, 'x-id', 'Explore', text)).toBe(text)
+})
+
+test('R3: a foreground, a background and a resumed boss agent report masked', async ($, on) => {
+  engine(on)
+  delivers(on)
+  const secret = `found sk-${KEY(40)} in logs`
+  await $.agent.spawn({
+    tool_use_id: 't-fg', prompt: 'REPO: /repo\nbrief', description: 'Look up', subagentType: 'boss:errand',
+    provider: { plugin: 'boss', tier: 'user' }, parentModel: 'claude-opus', background: false, fork: false,
+  })
+  expect(await report($, 'Look up-id', 'boss:errand', secret)).toBe('found *** in logs')
+  const b = await spawn($, 'boss:builder', 'Add login', 'sonnet')
+  expect(await report($, b, 'boss:builder', secret)).toBe('found *** in logs')
+  await resume($, 'boss:builder', 'Add login', 'Try again.')
+  expect(await report($, b, 'boss:builder', `STATUS: DONE\nAuthorization: Bearer ${KEY(30)}`)).toBe('STATUS: DONE\nAuthorization: Bearer ***')
 })

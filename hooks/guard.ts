@@ -8,6 +8,8 @@ const NOISE = ['{', '}', '(', ')', '!', 'then', 'do', 'else', 'elif', 'if', 'whi
 const NODE_INSTALLERS = ['npm', 'pnpm', 'yarn', 'bun']
 const GIT_DENY = ['push', 'commit', 'stash', 'restore', 'checkout', 'switch']
 const GIT_WRITES = ['add', 'rm', 'mv', 'apply', 'merge', 'rebase', 'cherry-pick', 'revert', 'am', 'pull', 'init', 'clone']
+// git clone options whose value is the next word.
+const CLONE_VALUES = ['-o', '--origin', '-b', '--branch', '--reference', '--reference-if-able', '--depth', '--shallow-since', '--shallow-exclude', '-j', '--jobs', '--filter', '--bundle-uri', '--server-option', '--revision']
 const INSTALLERS = ['npm', 'pnpm', 'yarn', 'bun', 'pip', 'pip3', 'brew', 'apt', 'apt-get', 'cargo', 'gem', 'go']
 const INSTALLS = ['install', 'i', 'add', 'ci', 'uninstall', 'remove', 'update', 'upgrade', 'get']
 
@@ -32,19 +34,41 @@ export function clean(path: string, cwd: string | null = null): string | null {
 // The clean path, or null for one the shell would change first: ~, $ or a backtick.
 const resolved = (path: string, cwd: string | null) => (path.startsWith('~') || /[$`]/.test(path) ? null : clean(path, cwd))
 
-// Inside the session's scratchpad; with none known, inside any /tmp/claude-N folder.
+// A claude-N folder: the session's own temp folder, only ever a root when no scratchpad is known.
+// `claude-*` stands for any claude-N folder directly in the hook's TMPDIR (tool shells get one added).
+const TEMP = /\/claude-\d+$/
+const ANY = '/claude-*'
+
+// Where read-only lanes may write: the session's scratchpad, else a TMPDIR named claude-N, else
+// `<TMPDIR>/claude-*` (null: no TMPDIR known).
+export function scratchRoot(scratchpadDir: string | null | undefined, tmpdir: string | null | undefined): string | null {
+  if (scratchpadDir) return scratchpadDir
+  const tmp = clean(tmpdir ?? '')
+  return tmp === null || TEMP.test(tmp) ? tmp : `${tmp === '/' ? '' : tmp}${ANY}`
+}
+
+// /tmp and /private/tmp are one folder on macOS.
+const slashTmp = (p: string) => p.replace(/^\/private\/tmp\//, '/tmp/')
+
+// Inside the session's scratchpad, or strictly inside its claude-N temp folder (any, for `claude-*`);
+// with no scratchpad known, inside any /tmp/claude-N folder too.
 export function inScratch(path: string, cwd: string | null = null, scratch: string | null = null): boolean {
   const full = resolved(path, cwd)
   if (full === null) return false
-  if (scratch === null) return /^\/(?:private\/)?tmp\/claude-\d+\/./.test(full)
-  return within(full, scratch)
+  const isTemp = /^\/(?:private\/)?tmp\/claude-\d+\/./.test(full)
+  if (scratch === null) return isTemp
+  if (scratch.endsWith(ANY)) {
+    const base = slashTmp(scratch.slice(0, -ANY.length))
+    const [first = '', ...rest] = slashTmp(full).startsWith(`${base}/`) ? slashTmp(full).slice(base.length + 1).split('/') : []
+    return isTemp || (/^claude-\d+$/.test(first) && rest.length > 0)
+  }
+  return within(full, scratch) && !(TEMP.test(scratch) && within(scratch, full))
 }
 
 // `path` (clean) is `root` or inside it; /tmp and /private/tmp are one folder on macOS.
 export function within(path: string, root: string): boolean {
-  const tmp = (p: string) => p.replace(/^\/private\/tmp\//, '/tmp/')
-  const r = tmp(root.replace(/\/+$/, ''))
-  return tmp(path) === r || tmp(path).startsWith(`${r}/`)
+  const r = slashTmp(root.replace(/\/+$/, ''))
+  return slashTmp(path) === r || slashTmp(path).startsWith(`${r}/`)
 }
 
 // Inside the folder, the REPO or the scratchpad itself.
@@ -52,7 +76,7 @@ export function inRoots(path: string, roots: Roots, cwd: string | null = roots.c
   const full = resolved(path, cwd)
   if (full === null) return false
   const under = (root: string) => within(full, root)
-  return under(roots.cwd) || roots.repos.some(under) || (roots.scratch === null ? inScratch(full) : under(roots.scratch))
+  return under(roots.cwd) || roots.repos.some(under) || inScratch(full, null, roots.scratch)
 }
 
 // Splits on ; && || | & and newlines outside quotes, and pulls out `>` targets.
@@ -163,7 +187,8 @@ function folderOf(args: string[], cwd: string | null): string | null {
   return at >= 0 ? (args[at + 1] ?? null) : cwd
 }
 
-function gitRule(args: string[], isReadOnly: boolean, cwd: string | null, scratch: string | null): string | null {
+// `prefix`: the words before `git`, its env assignments and wrappers.
+function gitRule(args: string[], isReadOnly: boolean, cwd: string | null, scratch: string | null, prefix: string[] = []): string | null {
   let i = 0
   while (i < args.length && (args[i] ?? '').startsWith('-')) {
     if (['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(args[i] ?? '')) i++
@@ -180,13 +205,20 @@ function gitRule(args: string[], isReadOnly: boolean, cwd: string | null, scratc
   if (sub === 'branch' && flagged(rest, a => /^-[a-zA-Z]*D/.test(a))) return 'run git branch -D'
   if (sub === 'worktree' && rest[0] === 'remove') return 'run git worktree remove'
   if (rest.some(a => a === '-f' || a.startsWith('--force'))) return `run git ${sub} with --force`
-  if (isReadOnly && (sub === 'apply' || sub === 'clone')) {
-    // Applied or cloned inside the scratchpad, a clone's folder included.
+  if (isReadOnly && sub === 'apply') {
+    const folder = folderOf(args, cwd)
+    return folder !== null && inScratch(folder, cwd, scratch) ? null : 'run git apply outside the scratchpad'
+  }
+  if (isReadOnly && sub === 'clone') {
+    // Upload-pack, config, hook templates, exec-path and GIT_* env can run code, even in a clone inside the scratchpad.
+    const runsCode = args.some(a => /^--(upload-pack|template|config|config-env|exec-path)(=|$)|^-[a-zA-Z]*[uc]/.test(a)) || prefix.some(w => /^GIT_\w*=/.test(w))
+    if (runsCode) return 'run git clone with options that run code'
+    // It lands in the folders it names after the source, else in its folder under the source's name.
     const folder = folderOf(args, cwd)
     const into = folder === null ? null : clean(folder, cwd)
-    const named = sub === 'clone' ? plain(rest).slice(1).at(-1) : undefined
-    const isInside = folder !== null && inScratch(folder, cwd, scratch) && (named === undefined || inScratch(named, into, scratch))
-    return isInside ? null : `run git ${sub} outside the scratchpad`
+    const named = rest.filter((a, k) => !a.startsWith('-') && !CLONE_VALUES.includes(rest[k - 1] ?? '')).slice(1)
+    const isInside = named.length > 0 ? named.every(p => inScratch(p, into, scratch)) : folder !== null && inScratch(folder, cwd, scratch)
+    return isInside ? null : 'run git clone outside the scratchpad'
   }
   if (isReadOnly && GIT_WRITES.includes(sub)) return `run git ${sub}`
   return null
@@ -306,6 +338,8 @@ function commandRule(words: string[], outs: string[], ctx: Ctx): string | null {
   const unknown = unknownTarget([...targets, ...(cmd === 'rm' ? files : [])], ctx)
   if (unknown !== null) return unknown
   if (isReadOnly && (cmd === 'export' ? args : words.slice(0, i)).some(w => /^GIT_(DIR|WORK_TREE)=/.test(w))) return 'point git at another folder'
+  // Set or exported, these make later git commands run a program of the agent's choosing.
+  if (isReadOnly && (cmd === 'export' ? args : words.slice(0, i)).some(w => /^GIT_(SSH|SSH_COMMAND|PROXY_COMMAND|ASKPASS|TEMPLATE_DIR|EXEC_PATH|CONFIG\w*)=/.test(w))) return 'set git variables that run code'
   if (isReadOnly && outs.some(p => !DEVICES.includes(p) && !inScratch(p, cwd, scratch))) return 'write files outside the scratchpad'
   if (roots !== null && targets.some(p => !inRoots(p, roots, cwd))) return 'write files outside REPO and the scratchpad'
 
@@ -318,7 +352,7 @@ function commandRule(words: string[], outs: string[], ctx: Ctx): string | null {
     if (at >= 0) return commandRule(args.slice(at + 1), [], ctx)
     return isReadOnly && args.includes('-delete') ? 'run find -delete' : null
   }
-  if (cmd === 'git') return gitRule(args, isReadOnly, cwd, scratch)
+  if (cmd === 'git') return gitRule(args, isReadOnly, cwd, scratch, words.slice(0, i))
   if (cmd === 'gh') return ghRule(args)
   if (cmd === 'curl' || cmd === 'wget') return curlRule(cmd, args)
   if (cmd === 'rm') {
@@ -382,8 +416,10 @@ export function bashRule(command: string, isReadOnly: boolean, roots: Roots | nu
   const said = new Map<string, string>()
   const loops = new Set<string>()
   let lost: string | null = null
+  // $TMPDIR is known only as the claude-N temp folder that is the scratch root.
+  const tmp = scratch !== null && TEMP.test(scratch) ? scratch : null
   const known = (name: string) =>
-    vars.has(name) ? (vars.get(name) ?? undefined) : name === 'PWD' && cwd !== null ? [cwd] : name === 'HOME' && home !== null ? [home] : undefined
+    vars.has(name) ? (vars.get(name) ?? undefined) : name === 'PWD' && cwd !== null ? [cwd] : name === 'HOME' && home !== null ? [home] : name === 'TMPDIR' && tmp !== null ? [tmp] : undefined
   // A second, different assignment forgets the name for good, inside a loop or not.
   const bind = (name: string, as: string, values: string[] | null) => {
     const isSecond = said.has(name) && (said.get(name) !== as || vars.get(name) === null)
